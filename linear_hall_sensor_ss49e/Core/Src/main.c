@@ -48,7 +48,7 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 char trans_str[64] = { 0, };
-volatile uint16_t adc[2] = { 0, }; // Два канала поэтому массив из двух элементов
+volatile uint16_t adc[16] = { 0, }; // Два канала опрашиваются по 8 раз каждый
 volatile uint8_t adc_flag = 0;
 /* USER CODE END PV */
 
@@ -100,7 +100,7 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1);
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc, 2); // Запускаем АЦП DMA
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc, 16); // Запускаем АЦП DMA
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -108,15 +108,23 @@ int main(void)
   while (1) {
     if (adc_flag) {
       adc_flag = 0;
+      uint32_t adc1 = 0;
+      uint32_t adc2 = 0;
+      for (uint8_t i = 0; i<16; i++) {
+        if (i % 2 != 0) {
+          adc1 += adc[i];
+        } else {
+          adc2 += adc[i];
+        }
+      }
+      adc1 >>= 3; // Среднее значение для Rank 1
+      adc2 >>= 3; // Среднее значение для Rank 2
 
-      HAL_ADC_Stop_DMA(&hadc1); // Необязательно
-      snprintf(trans_str, 63, "ADC %d %d\n", (uint16_t) adc[0],
-          (uint16_t) adc[1]);
+      snprintf(trans_str, 63, "ADC %d %d\n", (uint16_t) adc1, (uint16_t) adc2);
       HAL_UART_Transmit(&huart1, (uint8_t*) trans_str, strlen(trans_str), 1000);
-      adc[0] = 0;
-      adc[1] = 0;
+
       HAL_Delay(1000);
-      HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adc, 2);
+      HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adc, 16);
     }
     /* USER CODE END WHILE */
 
@@ -197,7 +205,7 @@ static void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
@@ -301,6 +309,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
   if (hadc->Instance == ADC1) {
+    HAL_ADC_Stop(&hadc1);
     adc_flag = 1;
   }
 }
