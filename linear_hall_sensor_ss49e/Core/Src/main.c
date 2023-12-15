@@ -21,8 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <string.h>
-#include <stdio.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,12 +43,46 @@
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
-UART_HandleTypeDef huart1;
-
 /* USER CODE BEGIN PV */
-char trans_str[64] = { 0, };
-volatile uint16_t adc[16] = { 0, }; // Два канала опрашиваются по 8 раз каждый
+uint16_t adc[48] = { 0, }; // 6 каналов опрашиваются по 8 раз каждый
 volatile uint8_t adc_flag = 0;
+uint8_t adc_flag_first = 1;
+
+uint32_t adc0 = 0;
+uint32_t adc1 = 0;
+uint32_t adc2 = 0;
+uint32_t adc3 = 0;
+uint32_t adc4 = 0;
+uint32_t adc5 = 0;
+
+uint32_t adc0_init = 0;
+uint32_t adc1_init = 0;
+uint32_t adc2_init = 0;
+uint32_t adc3_init = 0;
+uint32_t adc4_init = 0;
+uint32_t adc5_init = 0;
+
+int32_t dif0 = 0;
+int32_t dif1 = 0;
+int32_t dif2 = 0;
+int32_t dif3 = 0;
+int32_t dif4 = 0;
+int32_t dif5 = 0;
+
+int32_t cm1 = 0;
+int32_t dm1 = 0;
+int32_t cm2 = 0;
+int32_t dm2 = 0;
+int32_t cm3 = 0;
+int32_t dm3 = 0;
+
+int32_t z = 0;
+int32_t y = 0;
+int32_t x = 0;
+int32_t rz = 0;
+int32_t rx = 0;
+int32_t ry = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -57,7 +90,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
-static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -97,10 +129,9 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC1_Init();
-  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_ADCEx_Calibration_Start(&hadc1);
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc, 16); // Запускаем АЦП DMA
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adc, 48); // Запускаем АЦП DMA
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -108,23 +139,74 @@ int main(void)
   while (1) {
     if (adc_flag) {
       adc_flag = 0;
-      uint32_t adc1 = 0;
-      uint32_t adc2 = 0;
-      for (uint8_t i = 0; i<16; i++) {
-        if (i % 2 != 0) {
-          adc1 += adc[i];
-        } else {
-          adc2 += adc[i];
+
+      if (adc_flag_first) {
+        adc_flag_first = 0;
+
+        // Проводим вычисления только один раз, от этих значений будет отсчитываться смещение
+        for (uint8_t i = 0; i < 48; i += 6) {
+          adc0_init += adc[i];
+          adc1_init += adc[i + 1];
+          adc2_init += adc[i + 2];
+          adc3_init += adc[i + 3];
+          adc4_init += adc[i + 4];
+          adc5_init += adc[i + 5];
         }
+        // Вычисляем среднее значение для каждой линии
+        adc0_init >>= 3;
+        adc1_init >>= 3;
+        adc2_init >>= 3;
+        adc3_init >>= 3;
+        adc4_init >>= 3;
+        adc5_init >>= 3;
+        // Запускаем новое преобразование ADC
+        HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adc, 48);
+        // Дальнейший код игнорируем, переходим к следующей итерации цикла while
+        continue;
       }
-      adc1 >>= 3; // Среднее значение для Rank 1
-      adc2 >>= 3; // Среднее значение для Rank 2
 
-      snprintf(trans_str, 63, "ADC %d %d\n", (uint16_t) adc1, (uint16_t) adc2);
-      HAL_UART_Transmit(&huart1, (uint8_t*) trans_str, strlen(trans_str), 1000);
+      for (uint8_t i = 0; i < 48; i += 6) {
+        adc0 += adc[i];
+        adc1 += adc[i + 1];
+        adc2 += adc[i + 2];
+        adc3 += adc[i + 3];
+        adc4 += adc[i + 4];
+        adc5 += adc[i + 5];
+      }
+      // Вычисляем среднее значение для каждой линии
+      adc0 >>= 3;
+      adc1 >>= 3;
+      adc2 >>= 3;
+      adc3 >>= 3;
+      adc4 >>= 3;
+      adc5 >>= 3;
 
-      HAL_Delay(1000);
-      HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adc, 16);
+      // Вычисляем произошедшее смещение
+      dif0 = adc0_init - adc0;
+      dif1 = adc1_init - adc1;
+      dif2 = adc2_init - adc2;
+      dif3 = adc3_init - adc3;
+      dif4 = adc4_init - adc4;
+      dif5 = adc5_init - adc5;
+
+      // Получаем суммы и разности
+      cm1 = dif0 + dif1;
+      dm1 = dif0 - dif1;
+      cm2 = dif2 + dif3;
+      dm2 = dif2 - dif3;
+      cm3 = dif4 + dif5;
+      dm3 = dif4 - dif5;
+
+      // Вычисляем трансформацию
+      z = cm1 + cm2 + cm3;
+      y = -dm1 + dm3;
+      x = -(dm2 - dm1 / 2 - dm3 / 2);
+      rz = dm1 + dm2 + dm3;
+      rx = cm1 / 2 - cm2 + cm3 / 2;
+      ry = -cm1 + cm3;
+
+      HAL_Delay(100);
+      HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adc, 48);
     }
     /* USER CODE END WHILE */
 
@@ -209,7 +291,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 2;
+  hadc1.Init.NbrOfConversion = 6;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
     Error_Handler();
@@ -217,9 +299,45 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Rank = ADC_REGULAR_RANK_3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_3;
+  sConfig.Rank = ADC_REGULAR_RANK_4;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Rank = ADC_REGULAR_RANK_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -228,7 +346,7 @@ static void MX_ADC1_Init(void)
   /** Configure Regular Channel
   */
   sConfig.Channel = ADC_CHANNEL_5;
-  sConfig.Rank = ADC_REGULAR_RANK_2;
+  sConfig.Rank = ADC_REGULAR_RANK_6;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -236,39 +354,6 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
-
-}
-
-/**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
 
 }
 
