@@ -108,6 +108,7 @@ int main(void)
     HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTrConf, 1, 10);
     HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRecData, 8, 10);
 
+    // Преобразованные значения осей
     xMag = (pRecData[1] << 8 | pRecData[2]);
     yMag = (pRecData[3] << 8 | pRecData[4]);
     zMag = (pRecData[5] << 8 | pRecData[6]);
