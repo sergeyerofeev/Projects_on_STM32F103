@@ -45,12 +45,17 @@ I2C_HandleTypeDef hi2c1;
 /* USER CODE BEGIN PV */
 uint8_t pTrConf[1] = { 0x1E };
 uint8_t pRecData[7];
-volatile uint8_t isDataReady = 0;
+
 volatile uint8_t flag_exti1 = 0;
 
-int16_t xMag;
-int16_t yMag;
-int16_t zMag;
+uint8_t count = 8;
+int32_t xSum;
+int32_t ySum;
+int32_t zSum;
+
+int32_t xResult;
+int32_t yResult;
+int32_t zResult;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -88,37 +93,62 @@ int main(void) {
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  __HAL_RCC_I2C1_CLK_ENABLE();
+  HAL_Delay(100);
+  __HAL_RCC_I2C1_FORCE_RESET();
+  HAL_Delay(100);
+  __HAL_RCC_I2C1_RELEASE_RESET();
+  HAL_Delay(100);
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  // Запускаем непрерывный режим
-  HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTrConf, 1, 10);
-  HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRecData, 1, 10);
+  // Запускаем непрерывный режим передав конфигурацию 0x1E
+  HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTrConf, 1, HAL_MAX_DELAY);
+  HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRecData, 1, HAL_MAX_DELAY);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  pTrConf[0] = 0x4E; // Команда на чтение, для получения значений осей XYZ
+  // Команда на чтение, для получения значений осей XYZ
+  pTrConf[0] = 0x4E;
 
   while (1) {
     if (flag_exti1) {
       flag_exti1 = 0;
+
       // Выполняем запрос на считывание данных
-      HAL_I2C_Master_Transmit_IT(&hi2c1, (uint16_t) MLX90393_Address, pTrConf, 1);
-    }
+      HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTrConf, 1, HAL_MAX_DELAY);
+      HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRecData, 7, HAL_MAX_DELAY);
 
-    if (isDataReady) {
-      isDataReady = 0;
-      // Преобразованные значения осей
-      xMag = (pRecData[1] << 8 | pRecData[2]);
-      yMag = (pRecData[3] << 8 | pRecData[4]);
-      zMag = (pRecData[5] << 8 | pRecData[6]);
-    }
+      if (count != 0) {
+        // Суммируем полученные значения 8 раз, чтобы позже вычислить среднее
+        xSum += (int16_t) (pRecData[1] << 8 | pRecData[2]);
+        ySum += (int16_t) (pRecData[3] << 8 | pRecData[4]);
+        zSum += (int16_t) (pRecData[5] << 8 | pRecData[6]);
+        count--;
+      }
 
+      if (!count) {
+        // Суммирование закончено, вычисляем среднее сдвигая вправо на 3
+        xResult = xSum >> 3;
+        yResult = ySum >> 3;
+        zResult = zSum >> 3;
+        xSum = 0;
+        ySum = 0;
+        zSum = 0;
+        count = 8;
+      }
+
+      // При помощи макроса очищаем бит EXTI_PR
+      __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+      // Очищаем бит NVIC_ICPRx
+      NVIC_ClearPendingIRQ(EXTI1_IRQn);
+      // Включаем внешнее прерывание
+      HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -150,8 +180,7 @@ void SystemClock_Config(void) {
 
   /** Initializes the CPU, AHB and APB buses clocks
    */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
-      | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -228,27 +257,13 @@ static void MX_GPIO_Init(void) {
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef *hi2c) {
-  if (hi2c->Instance == I2C1) {
-    // Отправляем команду на получение байта статуса и 6 байт данных по XYZ
-    HAL_I2C_Master_Receive_IT(&hi2c1, (uint16_t) MLX90393_Address, pRecData, 7);
-  }
-}
-
-void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c) {
-  if (hi2c->Instance == I2C1) {
-    isDataReady = 1;
-  }
-}
-
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   if (GPIO_Pin == GPIO_PIN_1) {
-    // Сразу же отключаем прерывания на этом пине
+    // Сразу же отключаем прерывания на данном пине
     HAL_NVIC_DisableIRQ(EXTI1_IRQn);
     flag_exti1 = 1;
   }
 }
-
 /* USER CODE END 4 */
 
 /**
