@@ -44,10 +44,10 @@ I2C_HandleTypeDef hi2c1;
 DMA_HandleTypeDef hdma_i2c1_rx;
 
 /* USER CODE BEGIN PV */
-uint8_t pTxData[1] = { 0x1E };
+uint8_t pTxData[1];
 uint8_t pRxData[7];
 
-HAL_StatusTypeDef res;
+HAL_StatusTypeDef state;
 
 volatile uint8_t flag_exti1 = 0;
 volatile uint8_t isDataReady = 0;
@@ -99,7 +99,12 @@ int main(void) {
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  __HAL_RCC_I2C1_CLK_ENABLE();
+  HAL_Delay(100);
+  __HAL_RCC_I2C1_FORCE_RESET();
+  HAL_Delay(100);
+  __HAL_RCC_I2C1_RELEASE_RESET();
+  HAL_Delay(100);
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -108,9 +113,18 @@ int main(void) {
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
+  pTxData[0] = 0x80; // Выполняем команду Exit
+  state = HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTxData, 1, HAL_MAX_DELAY);
+  state = HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 1, HAL_MAX_DELAY);
+
+  pTxData[0] = 0xF0; // Выполняем команду Reset
+  state = HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTxData, 1, HAL_MAX_DELAY);
+  state = HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 1, HAL_MAX_DELAY);
+
   // Запускаем непрерывный режим передав конфигурацию 0x1E
-  res = HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTxData, 1, HAL_MAX_DELAY);
-  res = HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 1, HAL_MAX_DELAY);
+  pTxData[0] = 0x1E;
+  state = HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTxData, 1, HAL_MAX_DELAY);
+  state = HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 1, HAL_MAX_DELAY);
 
   /* USER CODE END 2 */
 
@@ -124,15 +138,15 @@ int main(void) {
       flag_exti1 = 0;
 
       // Выполняем запрос на считывание данных
-      res = HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTxData, 1, HAL_MAX_DELAY);
-      if (res != HAL_ERROR) {
-        res = HAL_I2C_Master_Receive_DMA(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 7);
-        if (res != HAL_ERROR) {
+      state = HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTxData, 1, HAL_MAX_DELAY);
+      if (state == HAL_OK) {
+        state = HAL_I2C_Master_Receive_DMA(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 7);
+        if (state == HAL_OK) {
           // Ошибок нет переходим на следующую итерацию
           continue;
         }
       }
-      // Возможна ошибка при первом запросе данных, поэтому включаем ожидание новых данных
+      // Если произошла ошибка, включаем ожидание новых данных
       // При помощи макроса очищаем бит EXTI_PR
       __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
       // Очищаем бит NVIC_ICPRx

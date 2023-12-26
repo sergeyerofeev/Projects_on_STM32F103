@@ -93,7 +93,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
   if(hi2c->Instance==I2C1)
   {
   /* USER CODE BEGIN I2C1_MspInit 0 */
-
+    __HAL_RCC_I2C1_CLK_ENABLE();
   /* USER CODE END I2C1_MspInit 0 */
 
     __HAL_RCC_GPIOB_CLK_ENABLE();
@@ -107,7 +107,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     /* Peripheral clock enable */
-    __HAL_RCC_I2C1_CLK_ENABLE();
+    //__HAL_RCC_I2C1_CLK_ENABLE();
 
     /* I2C1 DMA Init */
     /* I2C1_RX Init */
