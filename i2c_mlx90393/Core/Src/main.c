@@ -64,6 +64,13 @@ int32_t zSum;
 int32_t xResult;
 int32_t yResult;
 int32_t zResult;
+
+// Смещение которое будем вычитать из результата
+int32_t xOffset;
+int32_t yOffset;
+int32_t zOffset;
+// Флаг первого измерения для получения смещения
+uint8_t flag_offset = 1;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -82,11 +89,10 @@ static void MX_IWDG_Init(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -130,7 +136,9 @@ int main(void)
     I2C_ClearBusyFlagErratum(&hi2c1, 1000);
   }
 
-  // Производим сброс MLX90393 и запуск непрерывного измерения
+  // Отключаем прерывание по линии INT
+  HAL_NVIC_DisableIRQ(EXTI1_IRQn);
+  // Производим сброс MLX90393, установку смещения и запуск непрерывного измерения
   state = init_MLX90393(&hi2c1, (uint16_t) MLX90393_Address);
   if (state != HAL_OK) {
     // Если при инициализации произошла ошибка, перезапускаем микроконтроллер и MLX90393
@@ -140,6 +148,14 @@ int main(void)
 
   // Запуск IWDG переносим в самый конец инициализации MLX90393 и устанавливаем время работы 100 мс
   MX_IWDG_Init();
+
+  // Разрешаем прерывание по линии INT
+  // При помощи макроса очищаем бит EXTI_PR
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+  // Очищаем бит NVIC_ICPRx
+  NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  // Включаем внешнее прерывание
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -177,18 +193,25 @@ int main(void)
       if ((pRxData[0] & 0x03) == 0x02) {
         if (count != 0) {
           // Суммируем полученные значения 8 раз, чтобы позже вычислить среднее
-          xSum += (int16_t) (pRxData[1] << 8 | pRxData[2]);
-          ySum += (int16_t) (pRxData[3] << 8 | pRxData[4]);
-          zSum += (int16_t) (pRxData[5] << 8 | pRxData[6]);
+          xSum += (int16_t) pRxData[1] << 8 | pRxData[2];
+          ySum += (int16_t) pRxData[3] << 8 | pRxData[4];
+          zSum += (int16_t) pRxData[5] << 8 | pRxData[6];
           count--;
         }
 
         if (!count) {
           count = 8;
-          // Суммирование закончено, вычисляем среднее сдвигая вправо на 3
-          xResult = xSum >> 3;
-          yResult = ySum >> 3;
-          zResult = zSum >> 3;
+          if (flag_offset) {
+            flag_offset = 0;
+            // При старте вычисляем смещение
+            xOffset = xSum >> 3;
+            yOffset = ySum >> 3;
+            zOffset = zSum >> 3;
+          }
+          // Суммирование закончено, вычисляем среднее сдвигая вправо на 3 и отнимаем смещение
+          xResult = (xSum >> 3) - xOffset;
+          yResult = (ySum >> 3) - yOffset;
+          zResult = (zSum >> 3) - zOffset;
           // Обнуляем переменные для следующего суммирования
           xSum = 0;
           ySum = 0;
@@ -213,18 +236,17 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
+  RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
+   * in the RCC_OscInitTypeDef structure.
+   */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI | RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
@@ -232,37 +254,33 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
-  {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
 
   /** Enables the Clock Security System
-  */
+   */
   HAL_RCC_EnableCSS();
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_I2C1_Init(void) {
 
   /* USER CODE BEGIN I2C1_Init 0 */
 
@@ -280,8 +298,7 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.OwnAddress2 = 0;
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN I2C1_Init 2 */
@@ -291,12 +308,11 @@ static void MX_I2C1_Init(void)
 }
 
 /**
-  * @brief IWDG Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_IWDG_Init(void)
-{
+ * @brief IWDG Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_IWDG_Init(void) {
 
   /* USER CODE BEGIN IWDG_Init 0 */
 
@@ -308,8 +324,7 @@ static void MX_IWDG_Init(void)
   hiwdg.Instance = IWDG;
   hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
   hiwdg.Init.Reload = 1000;
-  if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
-  {
+  if (HAL_IWDG_Init(&hiwdg) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN IWDG_Init 2 */
@@ -319,10 +334,9 @@ static void MX_IWDG_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
+ * Enable DMA controller clock
+ */
+static void MX_DMA_Init(void) {
 
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -335,15 +349,14 @@ static void MX_DMA_Init(void)
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_GPIO_Init(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -370,8 +383,8 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -392,11 +405,10 @@ void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c) {
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
+void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
