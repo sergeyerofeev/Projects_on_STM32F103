@@ -18,11 +18,13 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "i2c_er.h"
 #include "init_device.h"
+#include "usbd_customhid.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -69,8 +71,12 @@ int32_t zResult;
 int32_t xOffset;
 int32_t yOffset;
 int32_t zOffset;
+
 // Флаг первого измерения для получения смещения
 uint8_t flag_offset = 1;
+
+extern USBD_HandleTypeDef hUsbDeviceFS;
+uint8_t usb_data[6];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -123,6 +129,7 @@ int main(void) {
   MX_DMA_Init();
   MX_I2C1_Init();
   // MX_IWDG_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
 
   // MLX90393 включается от ножки PA7
@@ -193,9 +200,9 @@ int main(void) {
       if ((pRxData[0] & 0x03) == 0x02) {
         if (count != 0) {
           // Суммируем полученные значения 8 раз, чтобы позже вычислить среднее
-          xSum += (int16_t) pRxData[1] << 8 | pRxData[2];
-          ySum += (int16_t) pRxData[3] << 8 | pRxData[4];
-          zSum += (int16_t) pRxData[5] << 8 | pRxData[6];
+          xSum += (int32_t) pRxData[1] << 8 | (int32_t) pRxData[2];
+          ySum += (int32_t) pRxData[3] << 8 | (int32_t) pRxData[4];
+          zSum += (int32_t) pRxData[5] << 8 | (int32_t) pRxData[6];
           count--;
         }
 
@@ -212,10 +219,22 @@ int main(void) {
           xResult = (xSum >> 3) - xOffset;
           yResult = (ySum >> 3) - yOffset;
           zResult = (zSum >> 3) - zOffset;
+
           // Обнуляем переменные для следующего суммирования
           xSum = 0;
           ySum = 0;
           zSum = 0;
+
+          // Подготавливаем данные для передачи по usb
+          usb_data[0] = (uint8_t) xResult;
+          usb_data[1] = (uint8_t) (xResult >> 8);
+          usb_data[2] = (uint8_t) yResult;
+          usb_data[3] = (uint8_t) (yResult >> 8);
+          usb_data[4] = (uint8_t) zResult;
+          usb_data[5] = (uint8_t) (zResult >> 8);
+          // Отправляем данные
+          USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, usb_data, 6);
+          HAL_Delay(20);
         }
 
         // Только здесь разрешаем снова запустить внешнее прерывание иначе оно сработает раньше,
@@ -242,6 +261,7 @@ int main(void) {
 void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
   RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = { 0 };
 
   /** Initializes the RCC Oscillators according to the specified parameters
    * in the RCC_OscInitTypeDef structure.
@@ -267,6 +287,11 @@ void SystemClock_Config(void) {
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
+    Error_Handler();
+  }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
+  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
     Error_Handler();
   }
 
@@ -384,6 +409,22 @@ static void MX_GPIO_Init(void) {
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
+  // Код для сброса линии USB
+  // �?нициализируем пин DP как выход
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET); // Прижимаем DP к "земле"
+  for (uint16_t i = 0; i < 1000; i++) {
+  }; // Немного ждём
+
+  // Переинициализируем пин для работы с USB
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  for (uint16_t i = 0; i < 1000; i++) {
+  }; // Немного ждём
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
