@@ -44,49 +44,48 @@
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
-DMA_HandleTypeDef hdma_i2c1_rx;
-
-IWDG_HandleTypeDef hiwdg;
 
 /* USER CODE BEGIN PV */
-uint8_t pTxData[1];
-uint8_t pRxData[7];
+HAL_StatusTypeDef state = HAL_OK; // Результат выполнения запроса
 
-HAL_StatusTypeDef state;
+// Переменная итератор для запроса на получение данных каждые 25 мс
+volatile uint8_t uiTicksCNT = 0;
 
-volatile uint8_t flag_exti1 = 0;
-volatile uint8_t isDataReady = 0;
+// Флаг окончания калибровки
+uint8_t isCalibrate = 0;
 
-uint8_t count = 8;
-int32_t xSum;
-int32_t ySum;
-int32_t zSum;
+// Флаг готовности выполнить вычисления, 1 раз в 25 мс
+volatile uint8_t isCalculation = 0;
+
+// Данные успешно прочитаны
+uint8_t isDataReady = 0;
+
+// Команды для одиночного измерения и чтения данных
+uint8_t comSM = 0x3E, comRM = 0x4E;
+
+uint8_t pRxData[7] = { 0 };
 
 // Вычисленный результат
-int32_t xResult;
-int32_t yResult;
-int32_t zResult;
+int16_t resX;
+int16_t resY;
+int16_t resZ;
 
 // Смещение которое будем вычитать из результата
-int32_t xOffset;
-int32_t yOffset;
-int32_t zOffset;
-
-// Флаг первого измерения для получения смещения
-uint8_t flag_offset = 1;
+int16_t xOffset;
+int16_t yOffset;
+int16_t zOffset;
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
-uint8_t usb_data[6];
+uint8_t usb_data[14] = { 0 };
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
-static void MX_IWDG_Init(void);
 /* USER CODE BEGIN PFP */
-
+void MLX90393_Get_Data(void);
+void MLX90393_Calibrate(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -126,14 +125,11 @@ int main(void) {
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_I2C1_Init();
-  // MX_IWDG_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-
-  // MLX90393 включается от ножки PA7
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+  // MLX90393 включается от ножки PB5
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
   HAL_Delay(500);
 
   // Проверяем готовность I2C и MLX90393
@@ -143,9 +139,7 @@ int main(void) {
     I2C_ClearBusyFlagErratum(&hi2c1, 1000);
   }
 
-  // Отключаем прерывание по линии INT
-  HAL_NVIC_DisableIRQ(EXTI1_IRQn);
-  // Производим сброс MLX90393, установку смещения и запуск непрерывного измерения
+  // Производим сброс MLX90393
   state = init_MLX90393(&hi2c1, (uint16_t) MLX90393_Address);
   if (state != HAL_OK) {
     // Если при инициализации произошла ошибка, перезапускаем микроконтроллер и MLX90393
@@ -153,98 +147,50 @@ int main(void) {
     NVIC_SystemReset(); // Программный сброс
   }
 
-  // Запуск IWDG переносим в самый конец инициализации MLX90393 и устанавливаем время работы 100 мс
-  MX_IWDG_Init();
-
-  // Разрешаем прерывание по линии INT
-  // При помощи макроса очищаем бит EXTI_PR
-  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
-  // Очищаем бит NVIC_ICPRx
-  NVIC_ClearPendingIRQ(EXTI1_IRQn);
-  // Включаем внешнее прерывание
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+  // Калибруем MLX90393
+  MLX90393_Calibrate();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  // Команда на чтение, для получения значений осей XYZ
-  pTxData[0] = 0x4E;
-
   while (1) {
-    if (flag_exti1) {
-      flag_exti1 = 0;
-
-      HAL_IWDG_Refresh(&hiwdg);
-
-      // Выполняем запрос на считывание данных
-      state = HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, pTxData, 1, HAL_MAX_DELAY);
-      if (state == HAL_OK) {
-        state = HAL_I2C_Master_Receive_DMA(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 7);
-        if (state == HAL_OK) {
-          // Ошибок нет переходим на следующую итерацию
-          continue;
-        }
-      }
-      // Если произошла ошибка, включаем ожидание новых данных
-      // При помощи макроса очищаем бит EXTI_PR
-      __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
-      // Очищаем бит NVIC_ICPRx
-      NVIC_ClearPendingIRQ(EXTI1_IRQn);
-      // Включаем внешнее прерывание
-      HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+    if (isCalculation) {
+      isCalculation = 0;
+      // Получаем данные и отправляем запрос на получение данных каждые 20 мс
+      MLX90393_Get_Data();
     }
 
     if (isDataReady) {
       isDataReady = 0;
-      // Проверяем количество пришедших данных, обрабатываем если равно 0x02 (всего байт 2 * 0x02 + 2) равно 6 байт
+      // Проверяем по байту статуса, количество пришедших данных, обрабатываем если равно 0x02
+      // (всего байт 2 * 0x02 + 2) равно 6 байт
       if ((pRxData[0] & 0x03) == 0x02) {
-        if (count != 0) {
-          // Суммируем полученные значения 8 раз, чтобы позже вычислить среднее
-          xSum += (int32_t) pRxData[1] << 8 | (int32_t) pRxData[2];
-          ySum += (int32_t) pRxData[3] << 8 | (int32_t) pRxData[4];
-          zSum += (int32_t) pRxData[5] << 8 | (int32_t) pRxData[6];
-          count--;
+
+        resX = (((int16_t) pRxData[1] << 8 | pRxData[2]) - xOffset);
+        resY = (((int16_t) pRxData[3] << 8 | pRxData[4]) - yOffset);
+        resZ = (((int16_t) pRxData[5] << 8 | pRxData[6]) - zOffset);
+
+        if (resX > 10 || resX < -10 || resY > 10 || resY < -10 || resZ > 10 || resZ < -10) {
+          // Отправляем данные по USB
+          usb_data[0] = 0; // Байт кнопок
+          usb_data[1] = 0; // Байт кнопок
+
+          usb_data[2] = 0;                      // Линейное смещение по координате X, LB
+          usb_data[3] = 0;                      // Линейное смещение по координате X, HB
+          usb_data[4] = 0;                      // Линейное смещение по координате Y, LB
+          usb_data[4] = 0;                      // Линейное смещение по координате Y, HB
+          usb_data[6] = (uint8_t) resZ;         // Линейное смещение по координате Z, LB
+          usb_data[7] = (uint8_t) (resZ >> 8);  // Линейное смещение по координате Z, HB
+
+          usb_data[8] = (uint8_t) resX;         // Крен, LB
+          usb_data[9] = (uint8_t) (resX >> 8);  // Крен, HB
+          usb_data[10] = (uint8_t) resY;        // Тангаж, LB
+          usb_data[11] = (uint8_t) (resY >> 8); // Тангаж, HB
+          usb_data[12] = 0;                     // Рыскание, LB
+          usb_data[13] = 0;                     // Рыскание, HB
+
+          USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, usb_data, 14);
         }
-
-        if (!count) {
-          count = 8;
-          if (flag_offset) {
-            flag_offset = 0;
-            // При старте вычисляем смещение
-            xOffset = xSum >> 3;
-            yOffset = ySum >> 3;
-            zOffset = zSum >> 3;
-          }
-          // Суммирование закончено, вычисляем среднее сдвигая вправо на 3 и отнимаем смещение
-          xResult = (xSum >> 3) - xOffset;
-          yResult = (ySum >> 3) - yOffset;
-          zResult = (zSum >> 3) - zOffset;
-
-          // Обнуляем переменные для следующего суммирования
-          xSum = 0;
-          ySum = 0;
-          zSum = 0;
-
-          // Подготавливаем данные для передачи по usb
-          usb_data[0] = (uint8_t) xResult;
-          usb_data[1] = (uint8_t) (xResult >> 8);
-          usb_data[2] = (uint8_t) yResult;
-          usb_data[3] = (uint8_t) (yResult >> 8);
-          usb_data[4] = (uint8_t) zResult;
-          usb_data[5] = (uint8_t) (zResult >> 8);
-          // Отправляем данные
-          USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, usb_data, 6);
-          HAL_Delay(20);
-        }
-
-        // Только здесь разрешаем снова запустить внешнее прерывание иначе оно сработает раньше,
-        // чем будут получены данные от предыдущего измерения
-        // При помощи макроса очищаем бит EXTI_PR
-        __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
-        // Очищаем бит NVIC_ICPRx
-        NVIC_ClearPendingIRQ(EXTI1_IRQn);
-        // Включаем внешнее прерывание
-        HAL_NVIC_EnableIRQ(EXTI1_IRQn);
       }
     }
     /* USER CODE END WHILE */
@@ -266,11 +212,10 @@ void SystemClock_Config(void) {
   /** Initializes the RCC Oscillators according to the specified parameters
    * in the RCC_OscInitTypeDef structure.
    */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI | RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
@@ -333,47 +278,6 @@ static void MX_I2C1_Init(void) {
 }
 
 /**
- * @brief IWDG Initialization Function
- * @param None
- * @retval None
- */
-static void MX_IWDG_Init(void) {
-
-  /* USER CODE BEGIN IWDG_Init 0 */
-
-  /* USER CODE END IWDG_Init 0 */
-
-  /* USER CODE BEGIN IWDG_Init 1 */
-
-  /* USER CODE END IWDG_Init 1 */
-  hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
-  hiwdg.Init.Reload = 1000;
-  if (HAL_IWDG_Init(&hiwdg) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN IWDG_Init 2 */
-
-  /* USER CODE END IWDG_Init 2 */
-
-}
-
-/**
- * Enable DMA controller clock
- */
-static void MX_DMA_Init(void) {
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
-
-}
-
-/**
  * @brief GPIO Initialization Function
  * @param None
  * @retval None
@@ -389,24 +293,14 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_7;
+  /*Configure GPIO pin : PB5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   // Код для сброса линии USB
@@ -429,20 +323,61 @@ static void MX_GPIO_Init(void) {
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-  if (GPIO_Pin == GPIO_PIN_1) {
-    // Сразу же отключаем прерывания на данном пине
-    HAL_NVIC_DisableIRQ(EXTI1_IRQn);
-    flag_exti1 = 1;
+void HAL_SYSTICK_Callback(void) {
+  if (isCalibrate && uiTicksCNT >= 25) {
+    uiTicksCNT = 0;
+
+    isCalculation = 1;
+    return;
   }
+  uiTicksCNT++;
 }
 
-void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c) {
-  if (hi2c->Instance == I2C1) {
-    isDataReady = 1;
+void MLX90393_Get_Data(void) {
+  // Выполняем запрос на считывание данных
+  state = HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, (uint8_t*) &comRM, 1, HAL_MAX_DELAY);
+  if (state == HAL_OK) {
+    state = HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 7, HAL_MAX_DELAY);
+    if (state == HAL_OK) {
+      // Ошибок нет, устанавливаем флаг о готовности данных
+      isDataReady = 1;
+    }
   }
+  // Запускаем новое измерение
+  HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, (uint8_t*) &comSM, 1, HAL_MAX_DELAY);
+  HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 1, HAL_MAX_DELAY);
 }
 
+void MLX90393_Calibrate(void) {
+  int32_t xCal = 0;
+  int32_t yCal = 0;
+  int32_t zCal = 0;
+  // Считаем сколько реально было выполнено итераций по получению данных
+  uint16_t count = 0;
+
+  // Запускаем новое измерение
+  HAL_I2C_Master_Transmit(&hi2c1, (uint16_t) MLX90393_Address, (uint8_t*) &comSM, 1, HAL_MAX_DELAY);
+  HAL_I2C_Master_Receive(&hi2c1, (uint16_t) MLX90393_Address, pRxData, 1, HAL_MAX_DELAY);
+
+  // Калибровку выполняем за 3 секунды, 1000 итераций * 3 мс
+  for (uint16_t i = 0; i < 100; i++) {
+    HAL_Delay(25);
+    MLX90393_Get_Data();
+    if (isDataReady) {
+      isDataReady = 0;
+      count++;
+      xCal += (int16_t) pRxData[1] << 8 | pRxData[2];
+      yCal += (int16_t) pRxData[3] << 8 | pRxData[4];
+      zCal += (int16_t) pRxData[5] << 8 | pRxData[6];
+    }
+  }
+  xOffset = (int16_t) (xCal / count);
+  yOffset = (int16_t) (yCal / count);
+  zOffset = (int16_t) (zCal / count);
+
+  // Выставляем флаг о завершении калибровки
+  isCalibrate = 1;
+}
 /* USER CODE END 4 */
 
 /**
