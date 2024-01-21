@@ -144,6 +144,7 @@ USBD_DescriptorsTypeDef FS_Desc =
   #pragma data_alignment=4
 #endif /* defined ( __ICCARM__ ) */
 /** USB standard device descriptor. */
+/** USB standard device descriptor. */
 __ALIGN_BEGIN uint8_t USBD_FS_DeviceDesc[USB_LEN_DEV_DESC] __ALIGN_END =
 {
   0x12,                       /*bLength */
@@ -153,19 +154,18 @@ __ALIGN_BEGIN uint8_t USBD_FS_DeviceDesc[USB_LEN_DEV_DESC] __ALIGN_END =
   0x00,                       /*bDeviceClass*/
   0x00,                       /*bDeviceSubClass*/
   0x00,                       /*bDeviceProtocol*/
-  USB_MAX_EP0_SIZE,           /*bMaxPacketSize*/
-  LOBYTE(USBD_VID),           /*idVendor*/
+  USB_MAX_EP0_SIZE,           /*bMaxPacketSize  64U*/
+  LOBYTE(USBD_VID),           /*idVendor        0x046d*/
   HIBYTE(USBD_VID),           /*idVendor*/
-  LOBYTE(USBD_PID_FS),        /*idProduct*/
+  LOBYTE(USBD_PID_FS),        /*idProduct       0xc606*/
   HIBYTE(USBD_PID_FS),        /*idProduct*/
-  0x00,                       /*bcdDevice rel. 2.00*/
-  0x02,
-  USBD_IDX_MFC_STR,           /*Index of manufacturer  string*/
-  USBD_IDX_PRODUCT_STR,       /*Index of product string*/
-  USBD_IDX_SERIAL_STR,        /*Index of serial number string*/
+  0x30,                       /*bcdDevice       0x0130*/
+  0x01,
+  USBD_IDX_CONFIG_STR,        /*Index of manufacturer  string  0x04U*/
+  0x1C,                       /*Index of product string        28*/
+  USBD_IDX_LANGID_STR,        /*Index of serial number string  0x00U*/
   USBD_MAX_NUM_CONFIGURATION  /*bNumConfigurations*/
 };
-
 /* USB_DeviceDescriptor */
 
 /**

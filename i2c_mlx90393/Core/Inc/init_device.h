@@ -44,11 +44,11 @@ static HAL_StatusTypeDef init_MLX90393(I2C_HandleTypeDef *hi2c, uint16_t address
   if (state != HAL_OK)
     return state;*/
 
-  // Записываем в регистр 0x02, значение RES_XYZ = 000101, DIG_FILT = 111
+  // Записываем в регистр 0x02, значение RES_XYZ = 111111, DIG_FILT = 111
   pTxData[0] = 0x60;
   // Записываем сначала старший байт, затем младщий
-  pTxData[1] = 0x00;
-  pTxData[2] = 0xBC;
+  pTxData[1] = 0x07;
+  pTxData[2] = 0xFC;
   pTxData[3] = 0x02 << 2;
   state = HAL_I2C_Master_Transmit(hi2c, address, pTxData, 4, HAL_MAX_DELAY);
   if (state != HAL_OK)
