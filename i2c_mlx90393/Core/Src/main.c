@@ -23,7 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "i2c_er.h"
-#include "init_device.h"
+#include "mlx90393.h"
 #include "usbd_customhid.h"
 /* USER CODE END Includes */
 
