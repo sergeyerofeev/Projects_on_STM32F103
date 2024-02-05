@@ -21,9 +21,8 @@ static const uint8_t *CurrentFont = SmallFont;
 
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi) {
   /* Deselect when Tx Complete */
-  if (hspi->Instance == SPI2) {
+  if (hspi->Instance == SPI1) {
     SPI_Deselect();
-    HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
   }
 }
 

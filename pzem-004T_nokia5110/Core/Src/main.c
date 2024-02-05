@@ -33,7 +33,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define RX_BUFSIZE 25
+#define TX_BUFSIZE 8
+#define FONT_HEIGHT 8
+#define FONT_WIDTH 6
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,19 +51,19 @@ DMA_HandleTypeDef hdma_spi1_tx;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-uint8_t txData[] = { 0x01, 0x04, 0x00, 0x00, 0x00, 0x0A, 0x70, 0x0D };
-uint8_t rxData[25];
+const uint8_t txData[] = { 0x01, 0x04, 0x00, 0x00, 0x00, 0x0A, 0x70, 0x0D };
+uint8_t rxData[RX_BUFSIZE];
 
 uint8_t isReadyData = 0;
-uint8_t isErrorData = 0;
 
-float v; // Напряжение
-double a; // Ток
-double w; // Мощность
-int e; // Энергия
-float pf; // Коэффициент мощности
+double v; // Напряжение в V
+double a; // Ток в А
+double w; // Мощность в Вт
+double e; // Энергия в КВт*ч, максимальное значение на экране 999,9, далее строка будет обрезана
+double pf; // Коэффициент мощности
 
 char str[20];
+uint8_t strLen;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -111,9 +114,16 @@ int main(void) {
   /* USER CODE BEGIN 2 */
   N5110_Init();
 
-  HAL_UART_Transmit(&huart1, txData, 8, 100);
-  __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
-  HAL_UART_Receive_IT(&huart1, rxData, 25);
+  N5110_Clear();
+  N5110_SetFont(SmallFont);
+  strLen = snprintf(str, 20, "WAIT...");
+  N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2),
+  N5110_MAX_HEIGHT / 2 - FONT_HEIGHT / 2, str, true);
+  N5110_Update();
+
+  HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
+
+  HAL_UART_Transmit(&huart1, txData, TX_BUFSIZE, 100);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -129,41 +139,32 @@ int main(void) {
       // Мощность, 9 и 10 младшие байты, 11 и 12 старшие байты, один бит равен 0,1 Вт
       w = ((uint64_t) rxData[11] << 32 | rxData[12] << 16 | rxData[9] << 8 | rxData[10]) / 10.0;
       // Энергия, 13 и 14 младшие байты, 15 и 16 старшие байты, один бит равен 1 Вт*ч
-      e = (uint64_t) rxData[15] << 32 | rxData[16] << 16 | rxData[13] << 8 | rxData[14];
+      e = ((uint64_t) rxData[15] << 32 | rxData[16] << 16 | rxData[13] << 8 | rxData[14]) / 1000.0;
       // Коэффициент мощности, байты 19 и 20, один бит равен 0,01
       pf = (rxData[19] << 8 | rxData[20]) / 100.0;
 
       N5110_Clear();
-      N5110_SetFont(SmallFont);
+      //N5110_SetFont(SmallFont);
 
-      snprintf(str, 20, "U = %5.1f V", v);
-      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (6 * 6), 0, str, true);
+      strLen = snprintf(str, 20, "U = %5.1f V", v);
+      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2), 0, str, true);
 
-      snprintf(str, 20, "I = %5.3f A", a);
-      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (6 * 6), 10, str, true);
+      strLen = snprintf(str, 20, "I = %5.3f A", a);
+      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2), 10, str, true);
 
-      snprintf(str, 20, "P = %5.1f W", w);
-      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (6 * 6), 20, str, true);
+      strLen = snprintf(str, 20, "P = %5.1f W", w);
+      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2), 20, str, true);
 
-      snprintf(str, 20, "E = %5d W*h", e);
-      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (6 * 6), 30, str, true);
+      strLen = snprintf(str, 20, "E = %3.1f KW*h", e);
+      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2), 30, str, true);
 
-      snprintf(str, 20, "PF = %4.2f", pf);
-      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (4.5 * 6), 40, str, true);
+      strLen = snprintf(str, 20, "PF = %4.2f", pf);
+      N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2), 40, str, true);
       N5110_Update();
 
-      HAL_UART_Transmit(&huart1, txData, 8, 100);
       HAL_Delay(1000);
-      __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
-      HAL_UART_Receive_IT(&huart1, rxData, 25);
-    }
+      HAL_UART_Transmit(&huart1, txData, TX_BUFSIZE, 100);
 
-    if (isErrorData) {
-      isErrorData = 0;
-
-      HAL_UART_Transmit(&huart1, txData, 8, 100);
-      HAL_Delay(1000);
-      HAL_UART_Receive_IT(&huart1, rxData, 25);
     }
     /* USER CODE END WHILE */
 
@@ -326,24 +327,9 @@ static void MX_GPIO_Init(void) {
 }
 
 /* USER CODE BEGIN 4 */
-/////////////////////////////////// не полный буфер ///////////////////////////////////////
-void HAL_UART_IDLE_Callback(UART_HandleTypeDef *huart) {
-  if (huart == &huart1) {
-    __HAL_UART_DISABLE_IT(&huart1, UART_IT_IDLE);
-    HAL_UART_AbortReceive(&huart1);
-    __HAL_UART_CLEAR_IDLEFLAG(&huart1);
-    __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
-    isErrorData = 1;
-  }
-}
-
-/////////////////////////////////// полный буфер ///////////////////////////////////////
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart == &huart1) {
-    __HAL_UART_DISABLE_IT(&huart1, UART_IT_IDLE);
-    HAL_UART_AbortReceive(&huart1);
-    __HAL_UART_CLEAR_IDLEFLAG(&huart1);
-    __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+    HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
     isReadyData = 1;
   }
 }
