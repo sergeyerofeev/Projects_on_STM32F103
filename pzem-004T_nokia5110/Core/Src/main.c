@@ -57,6 +57,7 @@ const uint8_t txData[] = { 0x01, 0x04, 0x00, 0x00, 0x00, 0x0A, 0x70, 0x0D };
 uint8_t rxData[RX_BUFSIZE];
 
 uint8_t isReadyData = 0;
+uint8_t isWait = 0;
 
 double v; // Напряжение в V
 double a; // Ток в А
@@ -76,7 +77,7 @@ static void MX_USART1_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void setWaiting(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -118,18 +119,14 @@ int main(void) {
   /* USER CODE BEGIN 2 */
   N5110_Init();
 
-  N5110_Clear();
   N5110_SetFont(SmallFont);
-  strLen = snprintf(str, 20, "WAIT...");
-  N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2),
-  N5110_MAX_HEIGHT / 2 - FONT_HEIGHT / 2, str, true);
-  N5110_Update();
+
+  setWaiting();
 
   HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
 
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_SR_UIF); // очищаем флаг
   HAL_TIM_Base_Start_IT(&htim4);
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -137,6 +134,7 @@ int main(void) {
   while (1) {
     if (isReadyData) {
       isReadyData = 0;
+      isWait = 0;
 
       // Напряжение, байты 3 и 4, один бит равен 0,1 В
       v = (rxData[3] << 8 | rxData[4]) / 10.0;
@@ -167,6 +165,11 @@ int main(void) {
       strLen = snprintf(str, 20, "PF = %4.2f", pf);
       N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2), 40, str, true);
       N5110_Update();
+    }
+
+    if (isWait == 5) {
+      // Предуппреждение выводится только один раз, т. к. в следующей итерации isWait = 6
+      setWaiting();
     }
     /* USER CODE END WHILE */
 
@@ -372,6 +375,7 @@ static void MX_GPIO_Init(void) {
 /* USER CODE BEGIN 4 */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart == &huart1) {
+    // Сразу запускаем ожидание получения данных с датчика PZEM-004T
     HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
     isReadyData = 1;
   }
@@ -379,8 +383,24 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM4) {
+    if (isWait <= 5) {
+      // Если в течении 5 секунд нет ответа от датчика, выводим предупреждение
+      isWait++;
+    }
+
+    // Каждую секунду отправляем запрос на получение данных с датчика PZEM-004T
     HAL_UART_Transmit_IT(&huart1, txData, TX_BUFSIZE);
   }
+}
+
+// Вывод на экран надписи WAITING FOR DATA...
+static void setWaiting(void) {
+  N5110_Clear();
+  strLen = snprintf(str, 20, "WAITING");
+  N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2), 10, str, true);
+  strLen = snprintf(str, 20, "FOR DATA...");
+  N5110_PrintStr(N5110_MAX_WIDTH / 2 - (strLen * FONT_WIDTH / 2), 30, str, true);
+  N5110_Update();
 }
 /* USER CODE END 4 */
 
