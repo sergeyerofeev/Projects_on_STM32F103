@@ -132,7 +132,6 @@ int main(void)
     if (isReceived) {
       isReceived = 0;
 
-      uint32_t systemCoreClock = SystemCoreClock;
       uint16_t psc = TIM4->PSC + 1;
       uint16_t speed = buff[0];
       // Если скорость меньше 10 об/мин плавный пуск отменяем
@@ -140,10 +139,10 @@ int main(void)
 
       count = (uint16_t) buff[1] << 8 | buff[2];
       if (count) {
-        uint16_t startPeriod = systemCoreClock / psc / 200 * 60 / 10;
+        uint16_t startPeriod = SystemCoreClock / psc / 200 * 60 / 10;
         TIM4->ARR = startPeriod - 1;
         TIM4->CCR1 = (startPeriod >> 1) - 1;
-        endPeriod = systemCoreClock / psc / 200 * 60 / speed;
+        endPeriod = SystemCoreClock / psc / 200 * 60 / speed;
         currentPeriod = startPeriod;
         if (HAL_TIM_PWM_GetState(&htim4) != HAL_TIM_STATE_BUSY) {
           HAL_TIM_PWM_Start_IT(&htim4, TIM_CHANNEL_1);
