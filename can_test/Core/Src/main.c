@@ -43,7 +43,11 @@
 CAN_HandleTypeDef hcan;
 
 /* USER CODE BEGIN PV */
-
+CAN_TxHeaderTypeDef TxHeader;
+CAN_RxHeaderTypeDef RxHeader;
+uint8_t TxData[8] = {0,};
+uint8_t RxData[8] = {0,};
+uint32_t TxMailbox = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -89,13 +93,52 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
+  // TxHeader.StdId = 0x0107;
+  TxHeader.ExtId = 0;
+  TxHeader.RTR = CAN_RTR_DATA; //CAN_RTR_REMOTE
+  TxHeader.IDE = CAN_ID_STD;   // CAN_ID_EXT
+  TxHeader.DLC = 8;
+  TxHeader.TransmitGlobalTime = 0;
+
+  // Заполняем массив для отправки данных:
+  for (uint8_t i = 0; i < 8; i++) {
+    TxData[i] = i + 10;
+  }
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  // Запускаем CAN и активируем события которые будут вызывать прерывания
+  HAL_CAN_Start(&hcan);
+  HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO1_MSG_PENDING | CAN_IT_ERROR | CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE);
+
   while (1)
   {
+    TxHeader.StdId = 0x0100;
+    TxData[0] = 90;
+
+    while (HAL_CAN_GetTxMailboxesFreeLevel(&hcan) == 0);
+
+    if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK) {
+      // Ошибка при отправке
+      __NOP();
+    }
+
+    HAL_Delay(500);
+
+    TxHeader.StdId = 0x0107;
+    TxData[0] = 100;
+
+    while (HAL_CAN_GetTxMailboxesFreeLevel(&hcan) == 0);
+
+    if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK) {
+      // Ошибка при отправке
+      __NOP();
+    }
+
+    HAL_Delay(500);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -155,7 +198,7 @@ static void MX_CAN_Init(void)
 {
 
   /* USER CODE BEGIN CAN_Init 0 */
-
+  CAN_FilterTypeDef sFilterConfig;
   /* USER CODE END CAN_Init 0 */
 
   /* USER CODE BEGIN CAN_Init 1 */
@@ -178,7 +221,20 @@ static void MX_CAN_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN_Init 2 */
+  sFilterConfig.FilterBank = 0;
+  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+  sFilterConfig.FilterIdHigh = 0x0100<<5; // старшая часть первого "регистра фильтра"
+  sFilterConfig.FilterIdLow = 0x0000;     // младшая часть первого "регистра фильтра"
+  sFilterConfig.FilterMaskIdHigh = 0x07F8<<5; // старшая часть второго "регистра фильтра"
+  sFilterConfig.FilterMaskIdLow = 0x0000;     // младшая часть второго "регистра фильтра"
+  sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO1;
+  sFilterConfig.FilterActivation = ENABLE;
 
+  if(HAL_CAN_ConfigFilter(&hcan, &sFilterConfig) != HAL_OK)
+  {
+      Error_Handler();
+  }
   /* USER CODE END CAN_Init 2 */
 
 }
@@ -190,19 +246,52 @@ static void MX_CAN_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);
+
+  /*Configure GPIO pin : PB12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+  if (hcan->Instance == CAN1) {
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO1, &RxHeader, RxData) == HAL_OK) {
+      // Обрабатываем данные с буфера CAN_RX_FIFO1
+      if (RxHeader.StdId == 0x0100) {
+        __NOP();
+      } else if (RxHeader.StdId == 0x0107) {
+        __NOP();
+      }
+    }
+  }
+}
+
+
+void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan)
+{
+  if (hcan->Instance == CAN1) {
+    // При любой ошибке зажигаем светодиод на PB12
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);
+   }
+}
 
 /* USER CODE END 4 */
 
