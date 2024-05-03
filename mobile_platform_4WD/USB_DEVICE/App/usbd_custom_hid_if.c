@@ -22,7 +22,7 @@
 #include "usbd_custom_hid_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#include <stdbool.h>
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +31,10 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-
+// Массив для приёма данных с ПК
+volatile uint8_t dataToReceive[8];
+// Получили данные по USB, можем начать преобразование
+volatile bool isReceived = false;
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -91,7 +94,15 @@
 __ALIGN_BEGIN static uint8_t CUSTOM_HID_ReportDesc_FS[USBD_CUSTOM_HID_REPORT_DESC_SIZE] __ALIGN_END =
 {
   /* USER CODE BEGIN 0 */
-  0x00,
+  0x06, 0x00, 0xff,              // USAGE_PAGE (Generic Desktop)
+  0x09, 0x01,                    // USAGE (Vendor Usage 1)
+  0xa1, 0x01,                    // COLLECTION (Application)
+  0x09, 0x01,                    //   USAGE (Vendor Usage 1)
+  0x15, 0x80,                    //   LOGICAL_MINIMUM (-128)
+  0x25, 0x7f,                    //   LOGICAL_MAXIMUM (127)
+  0x75, 0x08,                    //   REPORT_SIZE (8)
+  0x95, 0x08,                    //   REPORT_COUNT (8)
+  0x91, 0x02,                    //   OUTPUT (Data,Var,Abs)
   /* USER CODE END 0 */
   0xC0    /*     END_COLLECTION	             */
 };
@@ -176,6 +187,12 @@ static int8_t CUSTOM_HID_DeInit_FS(void)
 static int8_t CUSTOM_HID_OutEvent_FS(uint8_t event_idx, uint8_t state)
 {
   /* USER CODE BEGIN 6 */
+  USBD_CUSTOM_HID_HandleTypeDef *hhid = (USBD_CUSTOM_HID_HandleTypeDef*)hUsbDeviceFS.pClassData;
+
+  for (uint8_t i = 0; i < 8; i++) {
+    dataToReceive[i] = hhid->Report_buf[i];
+  }
+  isReceived = true;
   return (USBD_OK);
   /* USER CODE END 6 */
 }

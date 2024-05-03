@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2024 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2024 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdbool.h>
+#include "usbd_customhid.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,7 +46,20 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
+int16_t leftX;
+int16_t leftY;
+int16_t rightX;
+int16_t rightY;
+extern volatile uint8_t dataToReceive[8];
+extern volatile bool isReceived;
 
+// Направление движения, двигатели на каждой стороне объединены
+// Левая сторона, по умолчанию движение вперёд
+bool dirLeft = true;
+// Правая сторона, по умолчанию движение вперёд
+bool dirRight = true;
+
+uint16_t new_arr;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -95,13 +109,43 @@ int main(void)
   MX_TIM2_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_OC_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_OC_Start(&htim3, TIM_CHANNEL_2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+  while (1) {
+    if (isReceived) {
+      isReceived = false;
+      leftX = ((int16_t) dataToReceive[0] << 8) + dataToReceive[1];
+      leftY = ((int16_t) dataToReceive[2] << 8) + dataToReceive[3];
+      rightX = ((int16_t) dataToReceive[4] << 8) + dataToReceive[5];
+      rightY = ((int16_t) dataToReceive[6] << 8) + dataToReceive[7];
+      if (leftY > 500) {
+        if (!dirLeft || !dirRight) {
+          dirLeft = true;
+          dirRight = true;
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2 | GPIO_PIN_5, GPIO_PIN_SET);
+        }
+        new_arr = ARR_2 - ((leftY - 500) >> 2);
+        TIM2->ARR = new_arr;
+        TIM3->ARR = new_arr;
+      }
+
+      if (leftY < -500) {
+        if (dirLeft || dirRight) {
+          dirLeft = false;
+          dirRight = false;
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2 | GPIO_PIN_5, GPIO_PIN_RESET);
+        }
+        new_arr = ARR_2 + ((leftY + 500) >> 2);
+        TIM2->ARR = new_arr;
+        TIM3->ARR = new_arr;
+      }
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -287,6 +331,22 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
+  // Устанавливаем пин DP как выход
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  // Подтягиваем пин DP к GND
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
+  // Задержка для завершения процессов на хосте
+  for (uint16_t i = 0; i < 1000; i++);
+
+  // Переинициализируем пин DP для работы с USB
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  // Задержка для завершения процессов на хосте
+  for (uint16_t i = 0; i < 1000; i++);
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -303,8 +363,7 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-  while (1)
-  {
+  while (1) {
   }
   /* USER CODE END Error_Handler_Debug */
 }

@@ -59,9 +59,9 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define PSC_2_3 479
-#define ARR_2 1499
-#define ARR_3 1499
+#define PSC_2_3 119 // 479
+#define ARR_2 10499 // 12499
+#define ARR_3 10499 // 12499
 
 /* USER CODE BEGIN Private defines */
 
