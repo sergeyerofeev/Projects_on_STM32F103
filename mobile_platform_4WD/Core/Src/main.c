@@ -120,28 +120,77 @@ int main(void)
   while (1) {
     if (isReceived) {
       isReceived = false;
+      // Преобразуем полученные значения, нам нужны только
+      // leftY - движение вперёд/назад и rightX - поворот влево/вправо
       leftX = ((int16_t) dataToReceive[0] << 8) + dataToReceive[1];
       leftY = ((int16_t) dataToReceive[2] << 8) + dataToReceive[3];
       rightX = ((int16_t) dataToReceive[4] << 8) + dataToReceive[5];
       rightY = ((int16_t) dataToReceive[6] << 8) + dataToReceive[7];
+
+      if (leftY > 500 || leftY < -500 || rightX > 500 || rightX < -500) {
+        // Включаем двигатели, если любое из переданных значений, по модулю, больше 500
+        HAL_GPIO_WritePin(GPIOB, EN_L1_Pin | EN_R1_Pin | EN_L2_Pin | EN_R2_Pin, GPIO_PIN_SET);
+      } else {
+        // Отключаем двигатели, если стики в мёртвой зоне
+        HAL_GPIO_WritePin(GPIOB, EN_L1_Pin | EN_R1_Pin | EN_L2_Pin | EN_R2_Pin, GPIO_PIN_RESET);
+      }
+
       if (leftY > 500) {
+        // Обрабатываем движение вперёд
         if (!dirLeft || !dirRight) {
           dirLeft = true;
           dirRight = true;
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2 | GPIO_PIN_5, GPIO_PIN_SET);
+          // Все четыре двигателя, направление - вперёд
+          HAL_GPIO_WritePin(GPIOA, DIR_L1_Pin | DIR_R1_Pin | DIR_L2_Pin | DIR_R2_Pin, GPIO_PIN_SET);
         }
+        // Чтобы выровнять скорость, для расчётов берём ARR таймера TIM2
         new_arr = ARR_2 - ((leftY - 500) >> 2);
         TIM2->ARR = new_arr;
         TIM3->ARR = new_arr;
       }
 
       if (leftY < -500) {
+        // Обрабатываем движение назад
         if (dirLeft || dirRight) {
           dirLeft = false;
           dirRight = false;
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2 | GPIO_PIN_5, GPIO_PIN_RESET);
+          // Все четыре двигателя, направление - назад
+          HAL_GPIO_WritePin(GPIOA, DIR_L1_Pin | DIR_R1_Pin | DIR_L2_Pin | DIR_R2_Pin, GPIO_PIN_RESET);
         }
+        // Чтобы выровнять скорость, для расчётов берём ARR таймера TIM2
         new_arr = ARR_2 + ((leftY + 500) >> 2);
+        TIM2->ARR = new_arr;
+        TIM3->ARR = new_arr;
+      }
+
+      if (rightX > 500) {
+        // Обрабатываем движение вправо
+        if (!(dirLeft && !dirRight)) {
+          dirLeft = true;
+          dirRight = false;
+          // Двигатели на левой стороне, направление - вперёд
+          HAL_GPIO_WritePin(GPIOA, DIR_L1_Pin | DIR_L2_Pin, GPIO_PIN_SET);
+          // Двигатели на правой стороне, направление - назад
+          HAL_GPIO_WritePin(GPIOA, DIR_R1_Pin | DIR_R2_Pin, GPIO_PIN_RESET);
+        }
+        // Чтобы выровнять скорость, для расчётов берём ARR таймера TIM2
+        new_arr = ARR_2 - ((rightX - 500) >> 2);
+        TIM2->ARR = new_arr;
+        TIM3->ARR = new_arr;
+      }
+
+      if (rightX < -500) {
+        // Обрабатываем движение влево
+        if (!(!dirLeft && dirRight)) {
+          dirLeft = false;
+          dirRight = true;
+          // Двигатели на левой стороне, направление - назад
+          HAL_GPIO_WritePin(GPIOA, DIR_L1_Pin | DIR_L2_Pin, GPIO_PIN_RESET);
+          // Двигатели на правой стороне, направление - вперёд
+          HAL_GPIO_WritePin(GPIOA, DIR_R1_Pin | DIR_R2_Pin, GPIO_PIN_SET);
+        }
+        // Чтобы выровнять скорость, для расчётов берём ARR таймера TIM2
+        new_arr = ARR_2 + ((rightX + 500) >> 2);
         TIM2->ARR = new_arr;
         TIM3->ARR = new_arr;
       }
@@ -319,16 +368,27 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2|GPIO_PIN_5, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, DIR_R1_Pin|DIR_R2_Pin|DIR_L1_Pin|DIR_L2_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PA2 PA5 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_5;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, EN_R1_Pin|EN_R2_Pin|EN_L1_Pin|EN_L2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : DIR_R1_Pin DIR_R2_Pin DIR_L1_Pin DIR_L2_Pin */
+  GPIO_InitStruct.Pin = DIR_R1_Pin|DIR_R2_Pin|DIR_L1_Pin|DIR_L2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : EN_R1_Pin EN_R2_Pin EN_L1_Pin EN_L2_Pin */
+  GPIO_InitStruct.Pin = EN_R1_Pin|EN_R2_Pin|EN_L1_Pin|EN_L2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
   // Устанавливаем пин DP как выход
