@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,26 +40,28 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim4;
+TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
-uint8_t buff[3] = { 0, };
-volatile uint8_t isPulseFinished = 0, isReceived = 0;
-uint8_t isSoftStart = 1, currentStep = 0, maxSteps = 48 - 1;
-uint16_t count = 0;
-uint16_t currentPeriod;
-uint16_t endPeriod;
+uint8_t buff[5] = { 0, };
+volatile bool isReceived = false;
+// Полученные по UART значения PSC, ARR и числа оборотов * число шагов двигателя
+uint16_t psc, arr, maxPulses;
+// Число шагов двигателя
+uint8_t maxSteps = 200 - 1;
+// Прошедшее количество импульсов, увеличиваем при каждом переполнении
+volatile uint16_t numberPulses = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
-static void MX_TIM4_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -75,6 +77,7 @@ static void MX_USART1_UART_Init(void);
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -98,56 +101,40 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_TIM4_Init();
   MX_USART1_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  HAL_UART_Receive_DMA(&huart1, buff, 3);
+  HAL_UART_Receive_DMA(&huart1, buff, 5);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
-    if (isPulseFinished) {
-      isPulseFinished = 0;
-
-      if (isSoftStart) {
-        currentPeriod -= 10;
-        if (currentPeriod > endPeriod) {
-          TIM4->ARR = currentPeriod - 1;
-          TIM4->CCR1 = (currentPeriod >> 1) - 1;
-        } else {
-          isSoftStart = 0;
-          TIM4->ARR = endPeriod - 1;
-          TIM4->CCR1 = (endPeriod >> 1) - 1;
-        }
-      }
-      if (currentStep++ >= maxSteps) {
-        if (--count == 0) {
-          HAL_TIM_PWM_Stop_IT(&htim4, TIM_CHANNEL_1);
-        }
-        currentStep = 0;
-      }
+    if (numberPulses >= maxPulses) {
+      numberPulses = 0;
+      HAL_TIM_Base_Stop_IT(&htim2);
+      HAL_TIM_OC_Stop(&htim2, TIM_CHANNEL_1);
+      HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
     }
 
-    if (isReceived) {
+    // Если двигатель завершил вращение, применяем полученные данные
+    if (isReceived && !numberPulses) {
       isReceived = 0;
 
-      uint16_t psc = TIM4->PSC + 1;
-      uint16_t speed = buff[0];
-      // Если скорость меньше 10 об/мин плавный пуск отменяем
-      isSoftStart = (speed < 10) ? 0 : 1;
+      psc = (uint16_t) (buff[0] << 8 | buff[1]) - 1;
+      arr = (uint16_t) (buff[2] << 8 | buff[3]) - 1;
+      maxPulses = (uint16_t) buff[4] * maxSteps * 2;
 
-      count = (uint16_t) buff[1] << 8 | buff[2];
-      if (count) {
-        uint16_t startPeriod = SystemCoreClock / psc / 200 * 60 / 10;
-        TIM4->ARR = startPeriod - 1;
-        TIM4->CCR1 = (startPeriod >> 1) - 1;
-        endPeriod = SystemCoreClock / psc / 200 * 60 / speed;
-        currentPeriod = startPeriod;
-        if (HAL_TIM_PWM_GetState(&htim4) != HAL_TIM_STATE_BUSY) {
-          HAL_TIM_PWM_Start_IT(&htim4, TIM_CHANNEL_1);
-        }
-      }
+      // Если arr = 0 таймер не запустится, поэтому текущий ввод данных пропускаем
+      if (!arr) continue;
+
+      TIM2->PSC = psc;
+      TIM2->ARR = arr;
+      // Разрешаем работу драйвера шагового двигателя
+      HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+      // Запускаем таймер
+      HAL_TIM_Base_Start_IT(&htim2);
+      HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_1);
     }
     /* USER CODE END WHILE */
 
@@ -200,61 +187,51 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief TIM4 Initialization Function
+  * @brief TIM2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_TIM4_Init(void)
+static void MX_TIM2_Init(void)
 {
 
-  /* USER CODE BEGIN TIM4_Init 0 */
+  /* USER CODE BEGIN TIM2_Init 0 */
 
-  /* USER CODE END TIM4_Init 0 */
+  /* USER CODE END TIM2_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
-  /* USER CODE BEGIN TIM4_Init 1 */
+  /* USER CODE BEGIN TIM2_Init 1 */
 
-  /* USER CODE END TIM4_Init 1 */
-  htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 480-1;
-  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 3000-1;
-  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 480-1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 3000-1;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_OC_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 1500-1;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN TIM4_Init 2 */
+  /* USER CODE BEGIN TIM2_Init 2 */
 
-  /* USER CODE END TIM4_Init 2 */
-  HAL_TIM_MspPostInit(&htim4);
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -314,6 +291,7 @@ static void MX_DMA_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
@@ -322,6 +300,16 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : EN_Pin */
+  GPIO_InitStruct.Pin = EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(EN_GPIO_Port, &GPIO_InitStruct);
+
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
@@ -329,13 +317,13 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart->Instance == USART1) {
-    isReceived = 1;
+    isReceived = true;
   }
 }
 
-void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
-  if (htim->Instance == TIM4) {
-    isPulseFinished = 1;
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  if (htim->Instance == TIM2) {
+    numberPulses++;
   }
 }
 /* USER CODE END 4 */
