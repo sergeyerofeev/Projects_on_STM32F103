@@ -65,6 +65,9 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define EN_Pin GPIO_PIN_0
 #define EN_GPIO_Port GPIOB
+#define USB_DETECT_Pin GPIO_PIN_4
+#define USB_DETECT_GPIO_Port GPIOB
+#define USB_DETECT_EXTI_IRQn EXTI4_IRQn
 
 /* USER CODE BEGIN Private defines */
 

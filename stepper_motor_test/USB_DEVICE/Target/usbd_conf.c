@@ -26,7 +26,7 @@
 #include "usbd_customhid.h"
 
 /* USER CODE BEGIN Includes */
-#include <stdbool.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,7 +35,7 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-volatile bool isDisconnected = false;
+
 /* USER CODE END PV */
 
 PCD_HandleTypeDef hpcd_USB_FS;
@@ -268,13 +268,7 @@ static void PCD_ConnectCallback(PCD_HandleTypeDef *hpcd)
 void HAL_PCD_ConnectCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
-  /* USER CODE BEGIN HAL_PCD_ConnectCallback_PreTreatment */
-
-  /* USER CODE END HAL_PCD_ConnectCallback_PreTreatment */
   USBD_LL_DevConnected((USBD_HandleTypeDef*)hpcd->pData);
-  /* USER CODE BEGIN HAL_PCD_ConnectCallback_PostTreatment */
-
-  /* USER CODE END HAL_PCD_ConnectCallback_PostTreatment */
 }
 
 /**
@@ -288,13 +282,7 @@ static void PCD_DisconnectCallback(PCD_HandleTypeDef *hpcd)
 void HAL_PCD_DisconnectCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
-  /* USER CODE BEGIN HAL_PCD_DisconnectCallback_PreTreatment */
-
-  /* USER CODE END HAL_PCD_DisconnectCallback_PreTreatment */
   USBD_LL_DevDisconnected((USBD_HandleTypeDef*)hpcd->pData);
-  /* USER CODE BEGIN HAL_PCD_DisconnectCallback_PostTreatment */
-  isDisconnected = true;
-  /* USER CODE END HAL_PCD_DisconnectCallback_PostTreatment */
 }
 
 /*******************************************************************************
