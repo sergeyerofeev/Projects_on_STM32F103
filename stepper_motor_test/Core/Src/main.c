@@ -51,8 +51,9 @@ extern struct HIDDataPacket data;
 uint16_t tempARR;
 
 // Отслеживаем разрыв соединения по USB
-volatile uint8_t flag_irq = 0;
-volatile uint32_t time_irq = 0;
+// Флаг устанавливается в true при сбросе напряжения в 0 на разъёме USB
+volatile bool isDisconnected = false;
+volatile uint32_t time_exti4 = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -112,7 +113,10 @@ int main(void)
       switch (data.reportId) {
         case 1:
           // Команда на остановку двигателя
-          HAL_TIM_OC_Stop(&htim2, TIM_CHANNEL_1);
+          if ((&htim2)->ChannelState[0] == HAL_TIM_CHANNEL_STATE_BUSY) {
+            // TIM_CHANNEL_1 работает, останавливаем его
+            HAL_TIM_OC_Stop(&htim2, TIM_CHANNEL_1);
+          }
           break;
         case 2:
           // Двигатель вращается, изменяем значение регистра ARR
@@ -124,27 +128,32 @@ int main(void)
           // Команда на запуск двигателя
           TIM2->PSC = data.dataToReceive[3] << 8 | data.dataToReceive[4];
           TIM2->ARR = data.dataToReceive[5] << 8 | data.dataToReceive[6];
-          HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_1);
+          if ((&htim2)->ChannelState[0] == HAL_TIM_CHANNEL_STATE_READY) {
+            HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_1);
+          }
           break;
       }
     }
 
-    if (flag_irq && (HAL_GetTick() - time_irq) > 200) {
-      // Проверка состояния USB линии
+    if (isDisconnected && (HAL_GetTick() - time_exti4) > 200) {
+      // Ожидаем 200 мс для повторной проверки питания линии USB
       if (HAL_GPIO_ReadPin(USB_DETECT_GPIO_Port, USB_DETECT_Pin) == GPIO_PIN_RESET) {
-        // На линии питания шины USB отсутствует напряжние
+        // На линии USB отсутствует напряжние
+        // Сбрасываем флаг
+        isDisconnected = false;
+
         if ((&htim2)->ChannelState[0] == HAL_TIM_CHANNEL_STATE_BUSY) {
+          // TIM_CHANNEL_1 работает, останавливаем его
           HAL_TIM_OC_Stop(&htim2, TIM_CHANNEL_1);
         }
       }
+      // Запускаем проверку для нового ослеживания разрыва соединения
       // При помощи макроса очищаем бит EXTI_PR
       __HAL_GPIO_EXTI_CLEAR_IT(USB_DETECT_Pin);
       // Очищаем бит NVIC_ICPRx
       NVIC_ClearPendingIRQ(EXTI4_IRQn);
       // Включаем внешнее прерывание
       HAL_NVIC_EnableIRQ(EXTI4_IRQn);
-
-      flag_irq = 0;
     }
     /* USER CODE END WHILE */
 
@@ -306,10 +315,11 @@ static void MX_GPIO_Init(void)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == USB_DETECT_Pin) {
-    // сразу же отключаем прерывания на этом пине
+    // Сразу же отключаем внешнее прерывания EXTI4
     HAL_NVIC_DisableIRQ(EXTI4_IRQn);
-    flag_irq = 1;
-    time_irq = HAL_GetTick();
+    // Устанавливаем флаг и сохраняем текущее время
+    isDisconnected = true;
+    time_exti4 = HAL_GetTick();
   }
 }
 /* USER CODE END 4 */
