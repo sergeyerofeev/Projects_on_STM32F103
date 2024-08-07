@@ -48,7 +48,6 @@ TIM_HandleTypeDef htim2;
 extern volatile bool isReceived;
 // Структура для сохранения reportId и массива данных
 extern struct HIDDataPacket data;
-uint16_t tempARR;
 
 // Отслеживаем разрыв соединения по USB
 // Флаг устанавливается в true при сбросе напряжения в 0 на разъёме USB
@@ -56,7 +55,7 @@ volatile bool isDisconnected = false;
 volatile uint32_t time_exti4 = 0;
 
 // Количество шагов двигателя
-uint16_t stepsCount = 400;
+volatile int16_t stepsCount = 400;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -73,9 +72,9 @@ static void MX_TIM2_Init(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
@@ -118,15 +117,24 @@ int main(void)
           // Команда на остановку двигателя
           if ((&htim2)->ChannelState[0] == HAL_TIM_CHANNEL_STATE_BUSY) {
             // TIM_CHANNEL_1 работает, останавливаем его
-            HAL_TIM_OC_Stop(&htim2, TIM_CHANNEL_1);
+
+            // Проверка наличия обработчика прерывания для таймера
+            //if (&htim2->Instance->DIER & TIM_IT_UPDATE) {
+            if (__HAL_TIM_GET_IT_SOURCE(&htim2, TIM_IT_CC1) == SET) {
+              // Обработчик прерывания установлен, таймер работает в режиме с прерыванием
+              HAL_TIM_OC_Stop_IT(&htim2, TIM_CHANNEL_1);
+            } else {
+              // Обработчик прерывания не установлен, таймер работает без прерывания
+              HAL_TIM_OC_Stop(&htim2, TIM_CHANNEL_1);
+            }
+
             // Выключаем драйвер A4988, установив на выводе PA3 единицу
             HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
           }
           break;
         case 2:
           // Двигатель вращается, изменяем значение регистра ARR
-          tempARR = data.dataToReceive[0] << 8 | data.dataToReceive[1];
-          TIM2->ARR = tempARR;
+          TIM2->ARR = data.dataToReceive[0] << 8 | data.dataToReceive[1];
           break;
         case 3:
           // Один оборот вала двигателя
@@ -188,7 +196,13 @@ int main(void)
           HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
 
           if ((&htim2)->ChannelState[0] == HAL_TIM_CHANNEL_STATE_READY) {
-            HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_1);
+            if (data.reportId == 3) {
+              // Если выбран "Один оборот" запускаем таймер с прерыванием, чтобы
+              // подсчитать количество шагов
+              HAL_TIM_OC_Start_IT(&htim2, TIM_CHANNEL_1);
+            } else if (data.reportId == 4) {
+              HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_1);
+            }
           }
           break;
       }
@@ -222,18 +236,18 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+  RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = { 0 };
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -241,41 +255,37 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
-  {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
   PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
-  {
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
     Error_Handler();
   }
 
   /** Enables the Clock Security System
-  */
+   */
   HAL_RCC_EnableCSS();
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM2_Init(void)
 {
 
@@ -283,34 +293,31 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 0 */
 
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = { 0 };
+  TIM_OC_InitTypeDef sConfigOC = { 0 };
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 48000-1;
+  htim2.Init.Prescaler = 48000 - 1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_DOWN;
-  htim2.Init.Period = 1000-1;
+  htim2.Init.Period = 1000 - 1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_OC_Init(&htim2) != HAL_OK)
-  {
+  if (HAL_TIM_OC_Init(&htim2) != HAL_OK) {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
+  if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
@@ -321,15 +328,15 @@ static void MX_TIM2_Init(void)
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -341,42 +348,37 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, MS_1_Pin|MS_2_Pin|MS_3_Pin|DIR_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, MS_1_Pin | MS_2_Pin | MS_3_Pin | DIR_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pins : C13_Pin C14_Pin C15_Pin */
-  GPIO_InitStruct.Pin = C13_Pin|C14_Pin|C15_Pin;
+  GPIO_InitStruct.Pin = C13_Pin | C14_Pin | C15_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : A1_Pin A2_Pin A8_Pin A9_Pin
-                           A10_Pin A15_Pin */
-  GPIO_InitStruct.Pin = A1_Pin|A2_Pin|A8_Pin|A9_Pin
-                          |A10_Pin|A15_Pin;
+   A10_Pin A15_Pin */
+  GPIO_InitStruct.Pin = A1_Pin | A2_Pin | A8_Pin | A9_Pin | A10_Pin | A15_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : EN_Pin MS_1_Pin MS_2_Pin MS_3_Pin
-                           DIR_Pin */
-  GPIO_InitStruct.Pin = EN_Pin|MS_1_Pin|MS_2_Pin|MS_3_Pin
-                          |DIR_Pin;
+   DIR_Pin */
+  GPIO_InitStruct.Pin = EN_Pin | MS_1_Pin | MS_2_Pin | MS_3_Pin | DIR_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : B0_Pin B1_Pin B2_Pin B10_Pin
-                           B11_Pin B13_Pin B14_Pin B15_Pin
-                           B3_Pin B5_Pin B6_Pin B7_Pin
-                           B8_Pin B9_Pin */
-  GPIO_InitStruct.Pin = B0_Pin|B1_Pin|B2_Pin|B10_Pin
-                          |B11_Pin|B13_Pin|B14_Pin|B15_Pin
-                          |B3_Pin|B5_Pin|B6_Pin|B7_Pin
-                          |B8_Pin|B9_Pin;
+   B11_Pin B13_Pin B14_Pin B15_Pin
+   B3_Pin B5_Pin B6_Pin B7_Pin
+   B8_Pin B9_Pin */
+  GPIO_InitStruct.Pin = B0_Pin | B1_Pin | B2_Pin | B10_Pin | B11_Pin | B13_Pin | B14_Pin | B15_Pin | B3_Pin | B5_Pin | B6_Pin | B7_Pin | B8_Pin | B9_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -398,7 +400,7 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
   // Устанавливаем пин DP как выход
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -416,10 +418,21 @@ static void MX_GPIO_Init(void)
   // Задержка для завершения процессов на хосте
   for (uint16_t i = 0; i < 1000; i++);
 
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  // Сначала выполним проверку, может быть другой таймер или канал
+  if (htim->Instance == TIM2 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
+    if (stepsCount-- < 0) {
+      // Один оборот завершён, выключаем таймер
+      HAL_TIM_OC_Stop_IT(&htim2, TIM_CHANNEL_1);
+    }
+  }
+}
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == USB_DETECT_Pin) {
@@ -433,9 +446,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
