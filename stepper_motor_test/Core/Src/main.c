@@ -119,7 +119,6 @@ int main(void)
             // TIM_CHANNEL_1 работает, останавливаем его
 
             // Проверка наличия обработчика прерывания для таймера
-            //if (&htim2->Instance->DIER & TIM_IT_UPDATE) {
             if (__HAL_TIM_GET_IT_SOURCE(&htim2, TIM_IT_CC1) == SET) {
               // Обработчик прерывания установлен, таймер работает в режиме с прерыванием
               HAL_TIM_OC_Stop_IT(&htim2, TIM_CHANNEL_1);
@@ -128,33 +127,34 @@ int main(void)
               HAL_TIM_OC_Stop(&htim2, TIM_CHANNEL_1);
             }
 
-            // Выключаем драйвер A4988, установив на выводе PA3 единицу
+            // Выключаем драйвер A4988, установив на выводе EN единицу
             HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
           }
           break;
         case 2:
           // Двигатель вращается, изменяем значение регистра ARR
-          TIM2->ARR = data.dataToReceive[0] << 8 | data.dataToReceive[1];
+          TIM2->ARR = data.dataToReceive[0] << 8 | data.dataToReceive[1] - 1;
           break;
         case 3:
           // Один оборот вала двигателя
           // Для этого режима нам необходимо установить количество шагов двигателя
           // на основании этого значения мы будем отслеживать один оборот вала
+          // Дополнительно умножаем количество шагов двигателя на 2, т.к. ARR составляет половину периода
           switch (data.dataToReceive[2]) {
             case 0:
-              stepsCount = 400;
+              stepsCount = 400 << 1;
               break;
             case 1:
-              stepsCount = 200;
+              stepsCount = 200 << 1;
               break;
             case 2:
-              stepsCount = 100;
+              stepsCount = 100 << 1;
               break;
             case 3:
-              stepsCount = 64;
+              stepsCount = 64 << 1;
               break;
             case 4:
-              stepsCount = 48;
+              stepsCount = 48 << 1;
               break;
           }
         case 4:
@@ -162,22 +162,39 @@ int main(void)
           // Устанавливаем микрошаговый режим
           switch (data.dataToReceive[0]) {
             case 0:
+              // Полный шаг
               HAL_GPIO_WritePin(GPIOA, MS_1_Pin | MS_2_Pin | MS_3_Pin, GPIO_PIN_RESET);
               break;
             case 1:
+              // 1/2 шага
               HAL_GPIO_WritePin(GPIOA, MS_1_Pin, GPIO_PIN_SET);
               HAL_GPIO_WritePin(GPIOA, MS_2_Pin | MS_3_Pin, GPIO_PIN_RESET);
+              // Если выбран режим одного оборота, количество шагов умножаем на 2
+              if (data.reportId == 3)
+                stepsCount <<= 1;
               break;
             case 2:
+              // 1/4 шага
               HAL_GPIO_WritePin(GPIOA, MS_2_Pin, GPIO_PIN_SET);
               HAL_GPIO_WritePin(GPIOA, MS_1_Pin | MS_3_Pin, GPIO_PIN_RESET);
+              // Если выбран режим одного оборота, количество шагов умножаем на 4
+              if (data.reportId == 3)
+                stepsCount <<= 2;
               break;
             case 3:
+              // 1/8 шага
               HAL_GPIO_WritePin(GPIOA, MS_1_Pin | MS_2_Pin, GPIO_PIN_SET);
               HAL_GPIO_WritePin(GPIOA, MS_3_Pin, GPIO_PIN_RESET);
+              // Если выбран режим одного оборота, количество шагов умножаем на 8
+              if (data.reportId == 3)
+                stepsCount <<= 3;
               break;
             case 4:
+              // 1/16 шага
               HAL_GPIO_WritePin(GPIOA, MS_1_Pin | MS_2_Pin | MS_3_Pin, GPIO_PIN_SET);
+              // Если выбран режим одного оборота количество шагов умножаем на 16
+              if (data.reportId == 3)
+                stepsCount <<= 4;
               break;
           }
           // Устанавливаем направление вращения
@@ -191,7 +208,7 @@ int main(void)
           }
 
           TIM2->PSC = data.dataToReceive[3] << 8 | data.dataToReceive[4];
-          TIM2->ARR = data.dataToReceive[5] << 8 | data.dataToReceive[6];
+          TIM2->ARR = data.dataToReceive[5] << 8 | data.dataToReceive[6] - 1;
           // Включаем драйвер A4988, сбросив вывод PA3 в ноль
           HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
 
@@ -218,6 +235,8 @@ int main(void)
         if ((&htim2)->ChannelState[0] == HAL_TIM_CHANNEL_STATE_BUSY) {
           // TIM_CHANNEL_1 работает, останавливаем его
           HAL_TIM_OC_Stop(&htim2, TIM_CHANNEL_1);
+          // Выключаем драйвер A4988, установив на выводе EN единицу
+          HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
         }
       }
       // Запускаем проверку для нового ослеживания разрыва соединения
@@ -429,6 +448,8 @@ void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
     if (stepsCount-- < 0) {
       // Один оборот завершён, выключаем таймер
       HAL_TIM_OC_Stop_IT(&htim2, TIM_CHANNEL_1);
+      // Выключаем драйвер A4988, установив на выводе EN единицу
+      HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
     }
   }
 }
