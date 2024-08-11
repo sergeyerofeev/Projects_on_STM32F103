@@ -94,15 +94,21 @@ struct HIDDataPacket data;
 __ALIGN_BEGIN static uint8_t CUSTOM_HID_ReportDesc_FS[USBD_CUSTOM_HID_REPORT_DESC_SIZE] __ALIGN_END =
 {
   /* USER CODE BEGIN 0 */
-0x06, 0x00, 0xff,              // USAGE_PAGE (Vendor Defined Page 1)
-    0x09, 0x01,                    // USAGE (Vendor Usage 1)
-    0xa1, 0x01,                    // COLLECTION (Application)
-    0x75, 0x08,                    //   REPORT_SIZE (8)
-    0x95, 0x08,                    //   REPORT_COUNT (8)
-    0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
-    0x26, 0xff, 0x00,              //   LOGICAL_MAXIMUM (255)
-    0x09, 0x01,                    //   USAGE (Vendor Usage 1)
-    0x91, 0x02,                    //   OUTPUT (Data,Var,Abs)
+  0x06, 0x00, 0xff,              // USAGE_PAGE (Vendor Defined Page 1)
+  0x09, 0x01,                    // USAGE (Vendor Usage 1)
+  0xa1, 0x01,                    // COLLECTION (Application)
+  0x09, 0x01,                    //   USAGE (Vendor Usage 1)
+  0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
+  0x26, 0xff, 0x00,              //   LOGICAL_MAXIMUM (255)
+  0x75, 0x08,                    //   REPORT_SIZE (8)
+  0x95, 0x08,                    //   REPORT_COUNT (8)
+  0x91, 0x02,                    //   OUTPUT (Data,Var,Abs)
+  0x09, 0x01,                    //   USAGE (Vendor Usage 1)
+  0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
+  0x26, 0xff, 0x00,              //   LOGICAL_MAXIMUM (255)
+  0x75, 0x08,                    //   REPORT_SIZE (8)
+  0x95, 0x05,                    //   REPORT_COUNT (5)
+  0x81, 0x02,                    //   INPUT (Data,Var,Abs)
   /* USER CODE END 0 */
   0xC0    /*     END_COLLECTION	             */
 };
@@ -201,12 +207,17 @@ static int8_t CUSTOM_HID_OutEvent_FS(uint8_t event_idx, uint8_t state)
     case 3:
     case 4:
       // Команда на запуск двигателя
+      // В полученном с хоста массиве данных, пропускаем первый байт ReportId
       uint8_t *pSrc = hhid->Report_buf + 1;
       volatile uint8_t *pDest = data.dataToReceive;
-      uint8_t *pEnd = &hhid->Report_buf[7]; // Конечный адрес для цикла for
-      // Копируем весь массив кроме первого байта, в котором reportId
-      for (; pSrc <= pEnd; *pDest++ = *pSrc++);
+      // Конечный адрес для цикла for, указываем на следующий байт за массивом данных
+      uint8_t *pEnd = hhid->Report_buf + 8;
+      // Копируем только 7 байт данных
+      for (; pSrc != pEnd; *pDest++ = *pSrc++);
       break;
+/*    case 6:
+      // Команда на получение значения SYSCLK
+      break;*/
   }
 
   isReceived = true;
