@@ -60,6 +60,9 @@ volatile uint32_t time_exti4 = 0;
 volatile int16_t stepsCount = 400;
 // Флаг завершения одного оборота двигателя
 volatile bool isTurnComplete = false;
+uint8_t sendReportId5[5] = { 5 };
+// Массив из значения тактовой частоты
+uint8_t sendReportId7[5] = { 7 };
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,13 +70,13 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void parseReportId(void);
+static void isDisconnectUSB(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void parseReportId();
-static void isDisconnectUSB();
+
 /* USER CODE END 0 */
 
 /**
@@ -108,7 +111,13 @@ int main(void)
   MX_TIM2_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-
+  // Получаем значение тактовой частоты
+  uint32_t sysclk = SystemCoreClock;
+  // Формируем массив из значения тактовой частоты
+  sendReportId7[1] = sysclk >> 24 & 0xFF;
+  sendReportId7[2] = sysclk >> 16 & 0xFF;
+  sendReportId7[3] = sysclk >> 8 & 0xFF;
+  sendReportId7[4] = sysclk & 0xFF;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -126,8 +135,7 @@ int main(void)
       // Выключаем драйвер A4988, установив на выводе EN единицу
       HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
       // Отправляем на хост уведомление
-      uint8_t sendReport[] = { 5, 0, 0, 0, 0 };
-      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendReport, 5);
+      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendReportId5, 5);
     }
 
     if (isDisconnected && (HAL_GetTick() - time_exti4) > 200) {
@@ -350,7 +358,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   }
 }
 
-static void parseReportId()
+static void parseReportId(void)
 {
   isReceived = false;
 
@@ -464,10 +472,13 @@ static void parseReportId()
         }
       }
       break;
+    case 6:
+      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendReportId7, 5);
+      break;
   }
 }
 
-static void isDisconnectUSB()
+static void isDisconnectUSB(void)
 {
   // Ожидаем 200 мс для повторной проверки питания линии USB
   if (HAL_GPIO_ReadPin(USB_DETECT_GPIO_Port, USB_DETECT_Pin) == GPIO_PIN_RESET) {
