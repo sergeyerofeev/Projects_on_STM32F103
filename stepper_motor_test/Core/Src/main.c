@@ -383,7 +383,7 @@ static void parseReportId(void)
       break;
     case 2:
       // Двигатель вращается, изменяем значение регистра ARR
-      TIM2->ARR = (data.dataToReceive[0] << 8 | data.dataToReceive[1]) - 1;
+      TIM2->ARR = (data.dataToReceive[0] << 8 | data.dataToReceive[1]);
       break;
     case 3:
       // Один оборот вала двигателя
@@ -457,8 +457,8 @@ static void parseReportId(void)
           break;
       }
 
-      TIM2->PSC = (data.dataToReceive[3] << 8 | data.dataToReceive[4]) - 1;
-      TIM2->ARR = (data.dataToReceive[5] << 8 | data.dataToReceive[6]) - 1;
+      TIM2->PSC = (data.dataToReceive[3] << 8 | data.dataToReceive[4]);
+      TIM2->ARR = (data.dataToReceive[5] << 8 | data.dataToReceive[6]);
       // Включаем драйвер A4988, сбросив вывод PA3 в ноль
       HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
 
@@ -473,6 +473,7 @@ static void parseReportId(void)
       }
       break;
     case 6:
+      // Запрос на получение тактовой частоты
       USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendReportId7, 5);
       break;
   }

@@ -212,9 +212,9 @@ static int8_t CUSTOM_HID_OutEvent_FS(uint8_t event_idx, uint8_t state)
       // Копируем только 7 байт данных
       for (; pSrc != pEnd; *pDest++ = *pSrc++);
       break;
-/*    case 6:
-      // Команда на получение значения SYSCLK
-      break;*/
+      case 6:
+        // Команда на получение значения SYSCLK, полезных данных нет
+      break;
   }
 
   isReceived = true;
