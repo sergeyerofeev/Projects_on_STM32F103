@@ -13,6 +13,7 @@ https://github.com/sergeyerofeev/Application_for_stepper_motor_test
     <img src="git_image/a4988.png" style="height: 558; width: 1664; object-fit: contain">
 </p>
 <br/>
+
 Подключение к микроконтроллеру STM32 выполняется следующим образом:  
 
 >PA3 &rArr; ENABLE  
