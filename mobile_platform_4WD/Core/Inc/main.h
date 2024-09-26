@@ -59,9 +59,9 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define PSC_2_3 479
-#define ARR_2 12499
-#define ARR_3 12499
+#define PSC 4799
+#define ARR_2 1499
+#define ARR_3 1499
 #define DIR_R1_Pin GPIO_PIN_2
 #define DIR_R1_GPIO_Port GPIOA
 #define DIR_R2_Pin GPIO_PIN_3

@@ -129,10 +129,10 @@ int main(void)
 
       if (leftY > 500 || leftY < -500 || rightX > 500 || rightX < -500) {
         // Включаем двигатели, если любое из переданных значений, по модулю, больше 500
-        HAL_GPIO_WritePin(GPIOB, EN_L1_Pin | EN_R1_Pin | EN_L2_Pin | EN_R2_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(GPIOB, EN_L1_Pin | EN_R1_Pin | EN_L2_Pin | EN_R2_Pin, GPIO_PIN_RESET);
       } else {
         // Отключаем двигатели, если стики в мёртвой зоне
-        HAL_GPIO_WritePin(GPIOB, EN_L1_Pin | EN_R1_Pin | EN_L2_Pin | EN_R2_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, EN_L1_Pin | EN_R1_Pin | EN_L2_Pin | EN_R2_Pin, GPIO_PIN_SET);
       }
 
       if (leftY > 500) {
@@ -144,7 +144,7 @@ int main(void)
           HAL_GPIO_WritePin(GPIOA, DIR_L1_Pin | DIR_R1_Pin | DIR_L2_Pin | DIR_R2_Pin, GPIO_PIN_SET);
         }
         // Чтобы выровнять скорость, для расчётов берём ARR таймера TIM2
-        new_arr = ARR_2 - ((leftY - 500) >> 2);
+        new_arr = ARR_2 - ((leftY - 500) >> 4);
         TIM2->ARR = new_arr;
         TIM3->ARR = new_arr;
       }
@@ -158,7 +158,7 @@ int main(void)
           HAL_GPIO_WritePin(GPIOA, DIR_L1_Pin | DIR_R1_Pin | DIR_L2_Pin | DIR_R2_Pin, GPIO_PIN_RESET);
         }
         // Чтобы выровнять скорость, для расчётов берём ARR таймера TIM2
-        new_arr = ARR_2 + ((leftY + 500) >> 2);
+        new_arr = ARR_2 + ((leftY + 500) >> 4);
         TIM2->ARR = new_arr;
         TIM3->ARR = new_arr;
       }
@@ -174,7 +174,7 @@ int main(void)
           HAL_GPIO_WritePin(GPIOA, DIR_R1_Pin | DIR_R2_Pin, GPIO_PIN_RESET);
         }
         // Чтобы выровнять скорость, для расчётов берём ARR таймера TIM2
-        new_arr = ARR_2 - ((rightX - 500) >> 2);
+        new_arr = ARR_2 - ((rightX - 500) >> 4);
         TIM2->ARR = new_arr;
         TIM3->ARR = new_arr;
       }
@@ -190,7 +190,7 @@ int main(void)
           HAL_GPIO_WritePin(GPIOA, DIR_R1_Pin | DIR_R2_Pin, GPIO_PIN_SET);
         }
         // Чтобы выровнять скорость, для расчётов берём ARR таймера TIM2
-        new_arr = ARR_2 + ((rightX + 500) >> 2);
+        new_arr = ARR_2 + ((rightX + 500) >> 4);
         TIM2->ARR = new_arr;
         TIM3->ARR = new_arr;
       }
@@ -267,7 +267,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = PSC_2_3;
+  htim2.Init.Prescaler = PSC;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = ARR_2;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -282,7 +282,7 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
+  sConfigOC.OCMode = TIM_OCMODE_TIMING;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -320,7 +320,7 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = PSC_2_3;
+  htim3.Init.Prescaler = PSC;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = ARR_3;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -335,7 +335,7 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
+  sConfigOC.OCMode = TIM_OCMODE_TIMING;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -374,7 +374,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOA, DIR_R1_Pin|DIR_R2_Pin|DIR_L1_Pin|DIR_L2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, EN_R1_Pin|EN_R2_Pin|EN_L1_Pin|EN_L2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, EN_R1_Pin|EN_R2_Pin|EN_L1_Pin|EN_L2_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pins : DIR_R1_Pin DIR_R2_Pin DIR_L1_Pin DIR_L2_Pin */
   GPIO_InitStruct.Pin = DIR_R1_Pin|DIR_R2_Pin|DIR_L1_Pin|DIR_L2_Pin;
