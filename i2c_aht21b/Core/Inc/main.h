@@ -57,6 +57,11 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define TIM4_STATUS_Pin GPIO_PIN_12
+#define TIM4_STATUS_GPIO_Port GPIOB
+#define USB_DETECT_Pin GPIO_PIN_4
+#define USB_DETECT_GPIO_Port GPIOB
+#define USB_DETECT_EXTI_IRQn EXTI4_IRQn
 
 /* USER CODE BEGIN Private defines */
 
