@@ -106,7 +106,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1) {
     if (uart1_available()) {
-      char str_uart1[SIZE_BF] = { 'R', 'X', '-' };
+      char str_uart1[SIZE_BF] = { 'R', 'x', ':' };
       uint8_t i = 3;
 
       while (uart1_available()) {
@@ -126,7 +126,7 @@ int main(void)
     }
 
     if (uart3_available()) {
-      char str_uart3[SIZE_BF] = { 'T', 'X', '-' };
+      char str_uart3[SIZE_BF] = { 'T', 'x', ':' };
       uint8_t i = 3;
 
       while (uart3_available()) {
