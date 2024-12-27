@@ -71,12 +71,12 @@
 #undef STORAGE_LUN_NBR
 #define STORAGE_LUN_NBR    0    // Идентификатор логического устройства (LUN)
 #undef STORAGE_BLK_NBR
-#define STORAGE_BLK_NBR    (128 - 34) // Количество страниц доступных для записи
+#define STORAGE_BLK_NBR    (128 - 35) // Количество страниц доступных для записи
 #undef STORAGE_BLK_SIZ
 #define STORAGE_BLK_SIZ    1024 // Размер страницы, 1024 байт
 
-// Стартовый адрес для записи, первые 34 страницы займёт сама программа
-#define STORAGE_ADDRESS                  0x08008800
+// Стартовый адрес для записи, первые 35 страницы займёт сама программа
+#define STORAGE_ADDRESS                  0x08009000
 
 /* USER CODE END PRIVATE_DEFINES */
 
