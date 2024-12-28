@@ -22,6 +22,7 @@
 #include "usbd_storage_if.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include "config.h"
 #include <string.h>
 /* USER CODE END INCLUDE */
 
@@ -69,14 +70,11 @@
 /* USER CODE BEGIN PRIVATE_DEFINES */
 
 #undef STORAGE_LUN_NBR
-#define STORAGE_LUN_NBR    0    // Идентификатор логического устройства (LUN)
+#define STORAGE_LUN_NBR    0 // Идентификатор логического устройства (LUN)
 #undef STORAGE_BLK_NBR
-#define STORAGE_BLK_NBR    (128 - 35) // Количество страниц доступных для записи
+#define STORAGE_BLK_NBR    STORAGE_SIZE // Количество страниц доступных для записи
 #undef STORAGE_BLK_SIZ
-#define STORAGE_BLK_SIZ    1024 // Размер страницы, 1024 байт
-
-// Стартовый адрес для записи, первые 35 страницы займёт сама программа
-#define STORAGE_ADDRESS                  0x08009000
+#define STORAGE_BLK_SIZ    PAGE_SIZE // Размер одной страницы
 
 /* USER CODE END PRIVATE_DEFINES */
 
