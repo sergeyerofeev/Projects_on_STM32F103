@@ -53,8 +53,6 @@ DMA_HandleTypeDef hdma_adc1;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
-// Разрешаем зарядку только в случае наличия внешнего питания
-volatile bool en_charge = false;
 // Если преобразование ADC1 завершено, adc_end получает значение true
 volatile bool adc_end = false;
 volatile uint16_t adc[ARR_LENGTH] = { 0 };
@@ -63,7 +61,7 @@ double v_ref = 0;
 // Величина 4095 * 1.2 = 4914 используемая для получение v_ref
 const double internal_ref = 4914;
 // Значение с канала IN0, напряжение Li-Ion батареи
-double v_in0 = 0;
+double v_bat = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -125,14 +123,14 @@ int main(void)
   {
     if (adc_end) {
       v_ref = internal_ref / adc[0];
-      v_in0 = adc[1] * v_ref / 4095 + V_DIODE;
+      v_bat = adc[1] * v_ref / 4095 + V_DIODE;
       // Проверяем наличие внешнего питания
       if (HAL_GPIO_ReadPin(IN_GPIO_Port, IN_Pin) == GPIO_PIN_SET) {
         // Зарядка разрешена только при наличии внешнего питания
-        if (v_in0 < MIN_CHARGE_V)
+        if (v_bat < MIN_CHARGE_V)
           // Разрешаем зарядку
           HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
-        else if (v_in0 > MAX_CHARGE_V)
+        else if (v_bat > MAX_CHARGE_V)
           // Запрещаем зарядку
           HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
       }
