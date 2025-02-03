@@ -36,7 +36,10 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-
+union CRC_Converter {
+  uint32_t crc32;
+  uint8_t bytes[4];
+};
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

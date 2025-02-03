@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,13 +33,17 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 // Два канала опрашиваем по одному разу каждый
-#define ARR_LENGTH 2
+#define ADC_BUFFER_SIZE 2
 // Падение напряжение на последовательно подключенном диоде
 #define V_DIODE 0.6
 // Минимальное напряжение на батарее, при котором запускаем зарядку
 #define MIN_CHARGE_V 3.4
 // Максимальное напряжение на батарее, при котором зарядку прекращаем
 #define MAX_CHARGE_V 3.8
+// Адрес микросхемы EEPROM на линии I2C, 7 бит сдвинутых влево на единицу
+#define ADDRESS (0x50 << 1)
+// Размер массива для работы с EEPROM
+#define MEM_BUFFER_SIZE 11
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,18 +55,33 @@
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
 // Если преобразование ADC1 завершено, adc_end получает значение true
 volatile bool adc_end = false;
-volatile uint16_t adc[ARR_LENGTH] = { 0 };
+volatile uint16_t adcBuffer[ADC_BUFFER_SIZE];
 // Значение с канала Vrefint Channel, напряжение питания микроконтроллера
-double v_ref = 0;
+double v_ref;
 // Величина 4095 * 1.2 = 4914 используемая для получение v_ref
 const double internal_ref = 4914;
 // Значение с канала IN0, напряжение Li-Ion батареи
-double v_bat = 0;
+double v_bat;
+// Флаг готовности микросхемы
+bool isMemReady = false;
+// Буфер для работы с EEPROM (чтение и запись)
+uint8_t memBuffer[MEM_BUFFER_SIZE];
+// Идёт ли зарядка
+bool isСharged = false;
+// Количество циклов зарядки батареи записанные в EEPROM
+uint16_t chargeCycles;
+// Вычисленное значение CRC32
+uint32_t dataCRC;
+// union для преобразования uint32_t в массив из четырёх uint8_t
+union CRC_Converter crcCharging;
+union CRC_Converter crcCycles;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,6 +90,7 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -111,9 +132,45 @@ int main(void)
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_TIM3_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  if (HAL_I2C_IsDeviceReady(&hi2c1, ADDRESS, 5, 100) == HAL_OK) {
+    isMemReady = true;
+    RCC->AHBENR |= RCC_AHBENR_CRCEN; // Включить тактирование CRC
+  }
+  if (isMemReady) {
+    // Считаем из EEPROM флаг статуса зарядки и количество циклов зарядки батареи
+    if (HAL_I2C_Mem_Read(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) == HAL_OK) {
+      // Получаем записанные данные и вычисляем контрольную сумму
+      CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
+      CRC->DR = (uint32_t) memBuffer[0]; // Передаём данные для вычисления CRC32
+      dataCRC = CRC->DR; // Получаем вычисленное значение CRC32
+      // Получаем записанную контрольную сумму статуса зарядки
+      crcCharging = (union CRC_Converter) { .bytes = {memBuffer[4], memBuffer[3], memBuffer[2], memBuffer[1]} };
+      if (crcCharging.crc32 == dataCRC) {
+        // Если было сохранено 1, записываем true, если записан 0 - false
+        isСharged = (memBuffer[0] == 1);
+      } else {
+        // В случае ошибок при записи в EEPROM разядку запрещаем
+        isСharged = false;
+      }
+      // Количество циклов заряда батареи
+      CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
+      CRC->DR = (uint32_t) memBuffer[5] << 8 | memBuffer[6] ; // Передаём данные для вычисления CRC32
+      dataCRC = CRC->DR; // Получаем вычисленное значение CRC32
+      // Получаем записанную контрольную сумму количества циклов зарядки
+      crcCycles = (union CRC_Converter) { .bytes = {memBuffer[10], memBuffer[9], memBuffer[8], memBuffer[7]} };
+      if (crcCycles.crc32 == dataCRC) {
+        chargeCycles = (uint16_t) memBuffer[5] << 8 | memBuffer[6];
+      } else {
+        // В случае ошибок при записи в EEPROM количество циклов считаем равным 0
+        chargeCycles = 0;
+      }
+    }
+
+  }
   HAL_ADCEx_Calibration_Start(&hadc1);
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adc, ARR_LENGTH);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adcBuffer, ADC_BUFFER_SIZE);
   HAL_TIM_Base_Start(&htim3);
   /* USER CODE END 2 */
 
@@ -122,17 +179,82 @@ int main(void)
   while (1)
   {
     if (adc_end) {
-      v_ref = internal_ref / adc[0];
-      v_bat = adc[1] * v_ref / 4095 + V_DIODE;
+      v_ref = internal_ref / adcBuffer[0];
+      v_bat = adcBuffer[1] * v_ref / 4095 + V_DIODE;
       // Проверяем наличие внешнего питания
       if (HAL_GPIO_ReadPin(IN_GPIO_Port, IN_Pin) == GPIO_PIN_SET) {
-        // Зарядка разрешена только при наличии внешнего питания
-        if (v_bat < MIN_CHARGE_V)
-          // Разрешаем зарядку
+        if (isСharged) {
+          // Ранее (до перезагрузки) зарядка уже была запущена, поэтому включаем
           HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
-        else if (v_bat > MAX_CHARGE_V)
-          // Запрещаем зарядку
+
+          if (v_bat > MAX_CHARGE_V) {
+            // Напряжение на батарее превышает верхний предел, завершаем зарядку
+            HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+            isСharged = false;
+            chargeCycles++;
+            if (isMemReady) {
+              // Сохраняем статус зарядки в память и на 1 увеличиваем количество циклов зарядки
+              CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
+              CRC->DR = (uint32_t) isСharged; // Передаём данные для вычисления CRC32
+              crcCharging.crc32 = CRC->DR; // Получаем вычисленное значение CRC32
+              CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
+              CRC->DR = (uint32_t) chargeCycles; // Передаём данные для вычисления CRC32
+              crcCycles.crc32 = CRC->DR; // Получаем вычисленное значение CRC32
+              // Заполняем буфер для передачи в EEPROM
+              memBuffer[0] = (uint8_t) isСharged;
+              memBuffer[1] = crcCharging.bytes[3];
+              memBuffer[2] = crcCharging.bytes[2];
+              memBuffer[3] = crcCharging.bytes[1];
+              memBuffer[4] = crcCharging.bytes[0];
+              memBuffer[5] = (uint8_t) (chargeCycles >> 8);
+              memBuffer[6] = (uint8_t) chargeCycles;
+              memBuffer[7] = crcCycles.bytes[3];
+              memBuffer[8] = crcCycles.bytes[2];
+              memBuffer[9] = crcCycles.bytes[1];
+              memBuffer[10] = crcCycles.bytes[0];
+
+              if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
+                isMemReady = false;
+              }
+            }
+          }
+        } else {
+          // Ранее (до перезагрузки) зарядка не проводилась, поэтому выключаем
           HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+
+          if (v_bat < MIN_CHARGE_V) {
+            // Зарядка выключена, но напряжение на батарее стало ниже нижнего предела
+            // Включаем зарядку
+            HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
+            isСharged = true;
+            // Количество циклов зарядки остаётся прежним
+            if (isMemReady) {
+              // Сохраняем статус зарядки в память и количество циклов зарядки
+              CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
+              CRC->DR = (uint32_t) isСharged; // Передаём данные для вычисления CRC32
+              crcCharging.crc32 = CRC->DR; // Получаем вычисленное значение CRC32
+              CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
+              CRC->DR = (uint32_t) chargeCycles; // Передаём данные для вычисления CRC32
+              crcCycles.crc32 = CRC->DR; // Получаем вычисленное значение CRC32
+              // Заполняем буфер для передачи в EEPROM
+              memBuffer[0] = (uint8_t) isСharged;
+              memBuffer[1] = crcCharging.bytes[3];
+              memBuffer[2] = crcCharging.bytes[2];
+              memBuffer[3] = crcCharging.bytes[1];
+              memBuffer[4] = crcCharging.bytes[0];
+              memBuffer[5] = (uint8_t) (chargeCycles >> 8);
+              memBuffer[6] = (uint8_t) chargeCycles;
+              memBuffer[7] = crcCycles.bytes[3];
+              memBuffer[8] = crcCycles.bytes[2];
+              memBuffer[9] = crcCycles.bytes[1];
+              memBuffer[10] = crcCycles.bytes[0];
+
+              if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
+                isMemReady = false;
+              }
+            }
+          }
+        }
       }
     }
     /* USER CODE END WHILE */
@@ -238,6 +360,40 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
 
 }
 
