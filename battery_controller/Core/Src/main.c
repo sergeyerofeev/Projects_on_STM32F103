@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
 #include <string.h>
+#include "crc32.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,11 +78,6 @@ uint8_t memBuffer[MEM_BUFFER_SIZE];
 bool isСharged = false;
 // Количество циклов зарядки батареи записанные в EEPROM
 uint16_t chargeCycles;
-// Вычисленное значение CRC32
-uint32_t dataCRC;
-// union для преобразования uint32_t в массив из четырёх uint8_t
-union CRC_Converter crcCharging;
-union CRC_Converter crcCycles;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -141,27 +137,26 @@ int main(void)
   if (isMemReady) {
     // Считаем из EEPROM флаг статуса зарядки и количество циклов зарядки батареи
     if (HAL_I2C_Mem_Read(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) == HAL_OK) {
-      // Получаем записанные данные и вычисляем контрольную сумму
-      CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
-      CRC->DR = (uint32_t) memBuffer[0]; // Передаём данные для вычисления CRC32
-      dataCRC = CRC->DR; // Получаем вычисленное значение CRC32
-      // Получаем записанную контрольную сумму статуса зарядки
-      crcCharging = (union CRC_Converter) { .bytes = {memBuffer[4], memBuffer[3], memBuffer[2], memBuffer[1]} };
-      if (crcCharging.crc32 == dataCRC) {
+      // Статус зарядки
+      // Вычисляем контрольную сумму из полученных из EEPROM данных
+      uint32_t dataCRC32 = computeCRC32((uint32_t) memBuffer[0]);
+      // Преобразуем считанную из EEPROM массив контрольной суммы в двойное слово
+      uint32_t saveCRC32 = (uint32_t) memBuffer[1]<<24 | memBuffer[2]<<16 | memBuffer[3]<<8 | memBuffer[4];
+      if (dataCRC32 == saveCRC32) {
         // Если было сохранено 1, записываем true, если записан 0 - false
         isСharged = (memBuffer[0] == 1);
       } else {
         // В случае ошибок при записи в EEPROM разядку запрещаем
         isСharged = false;
       }
+
       // Количество циклов заряда батареи
-      CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
-      CRC->DR = (uint32_t) memBuffer[5] << 8 | memBuffer[6] ; // Передаём данные для вычисления CRC32
-      dataCRC = CRC->DR; // Получаем вычисленное значение CRC32
-      // Получаем записанную контрольную сумму количества циклов зарядки
-      crcCycles = (union CRC_Converter) { .bytes = {memBuffer[10], memBuffer[9], memBuffer[8], memBuffer[7]} };
-      if (crcCycles.crc32 == dataCRC) {
-        chargeCycles = (uint16_t) memBuffer[5] << 8 | memBuffer[6];
+      // Вычисляем контрольную сумму из полученных из EEPROM данных
+      dataCRC32 = computeCRC32((uint32_t) memBuffer[5] << 8 | memBuffer[6]);
+      // Преобразуем считанную из EEPROM массив контрольной суммы в двойное слово
+      saveCRC32 = (uint32_t) memBuffer[7]<<24 | memBuffer[8]<<16 | memBuffer[9]<<8 | memBuffer[10];
+      if (dataCRC32 == saveCRC32) {
+        chargeCycles = (uint16_t) memBuffer[5]<<8 | memBuffer[6];
       } else {
         // В случае ошибок при записи в EEPROM количество циклов считаем равным 0
         chargeCycles = 0;
@@ -194,24 +189,13 @@ int main(void)
             chargeCycles++;
             if (isMemReady) {
               // Сохраняем статус зарядки в память и на 1 увеличиваем количество циклов зарядки
-              CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
-              CRC->DR = (uint32_t) isСharged; // Передаём данные для вычисления CRC32
-              crcCharging.crc32 = CRC->DR; // Получаем вычисленное значение CRC32
-              CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
-              CRC->DR = (uint32_t) chargeCycles; // Передаём данные для вычисления CRC32
-              crcCycles.crc32 = CRC->DR; // Получаем вычисленное значение CRC32
               // Заполняем буфер для передачи в EEPROM
               memBuffer[0] = (uint8_t) isСharged;
-              memBuffer[1] = crcCharging.bytes[3];
-              memBuffer[2] = crcCharging.bytes[2];
-              memBuffer[3] = crcCharging.bytes[1];
-              memBuffer[4] = crcCharging.bytes[0];
+              decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
+
               memBuffer[5] = (uint8_t) (chargeCycles >> 8);
               memBuffer[6] = (uint8_t) chargeCycles;
-              memBuffer[7] = crcCycles.bytes[3];
-              memBuffer[8] = crcCycles.bytes[2];
-              memBuffer[9] = crcCycles.bytes[1];
-              memBuffer[10] = crcCycles.bytes[0];
+              decompose32into8(computeCRC32((uint32_t) chargeCycles), memBuffer, 7);
 
               if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
                 isMemReady = false;
@@ -229,25 +213,10 @@ int main(void)
             isСharged = true;
             // Количество циклов зарядки остаётся прежним
             if (isMemReady) {
-              // Сохраняем статус зарядки в память и количество циклов зарядки
-              CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
-              CRC->DR = (uint32_t) isСharged; // Передаём данные для вычисления CRC32
-              crcCharging.crc32 = CRC->DR; // Получаем вычисленное значение CRC32
-              CRC->CR |= CRC_CR_RESET; // Сброс CRC (очистка аккумулятора)
-              CRC->DR = (uint32_t) chargeCycles; // Передаём данные для вычисления CRC32
-              crcCycles.crc32 = CRC->DR; // Получаем вычисленное значение CRC32
+              // Сохраняем статус зарядки в память, количество циклов зарядки оставляем без изменения
               // Заполняем буфер для передачи в EEPROM
               memBuffer[0] = (uint8_t) isСharged;
-              memBuffer[1] = crcCharging.bytes[3];
-              memBuffer[2] = crcCharging.bytes[2];
-              memBuffer[3] = crcCharging.bytes[1];
-              memBuffer[4] = crcCharging.bytes[0];
-              memBuffer[5] = (uint8_t) (chargeCycles >> 8);
-              memBuffer[6] = (uint8_t) chargeCycles;
-              memBuffer[7] = crcCycles.bytes[3];
-              memBuffer[8] = crcCycles.bytes[2];
-              memBuffer[9] = crcCycles.bytes[1];
-              memBuffer[10] = crcCycles.bytes[0];
+              decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
 
               if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
                 isMemReady = false;
