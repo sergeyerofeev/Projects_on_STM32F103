@@ -74,7 +74,7 @@ double v_bat;
 bool isMemReady = false;
 // Буфер для работы с EEPROM (чтение и запись)
 uint8_t memBuffer[MEM_BUFFER_SIZE];
-// Идёт ли зарядка
+// �?дёт ли зарядка
 bool isСharged = false;
 // Количество циклов зарядки батареи записанные в EEPROM
 uint16_t chargeCycles;
@@ -130,13 +130,25 @@ int main(void)
   MX_TIM3_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  // Подаём притание на микросхему EEPROM, низкий уровень сигнала включает PNP транзистор
+  HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_RESET);
+  HAL_Delay(1000);
+  // Проверям готовность, 5 попыток, таймаут 100 мс
   if (HAL_I2C_IsDeviceReady(&hi2c1, ADDRESS, 5, 100) == HAL_OK) {
     isMemReady = true;
     RCC->AHBENR |= RCC_AHBENR_CRCEN; // Включить тактирование CRC
+  } else {
+    // Если при инициализации произошла ошибка, перезапускаем микроконтроллер
+    // Отключаем питание микросхемы EEPROM
+    HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_SET);
+    HAL_Delay(1000);
+    __set_FAULTMASK(1); // Запрещаем все маскируемые прерывания
+    NVIC_SystemReset(); // Программный сброс
   }
+
   if (isMemReady) {
     // Считаем из EEPROM флаг статуса зарядки и количество циклов зарядки батареи
-    if (HAL_I2C_Mem_Read(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) == HAL_OK) {
+    if (HAL_I2C_Mem_Read(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE, 100) == HAL_OK) {
       // Статус зарядки
       // Вычисляем контрольную сумму из полученных из EEPROM данных
       uint32_t dataCRC32 = computeCRC32((uint32_t) memBuffer[0]);
@@ -161,9 +173,11 @@ int main(void)
         // В случае ошибок при записи в EEPROM количество циклов считаем равным 0
         chargeCycles = 0;
       }
+    } else {
+      isMemReady = false;
     }
-
   }
+
   HAL_ADCEx_Calibration_Start(&hadc1);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&adcBuffer, ADC_BUFFER_SIZE);
   HAL_TIM_Base_Start(&htim3);
@@ -180,11 +194,11 @@ int main(void)
       if (HAL_GPIO_ReadPin(IN_GPIO_Port, IN_Pin) == GPIO_PIN_SET) {
         if (isСharged) {
           // Ранее (до перезагрузки) зарядка уже была запущена, поэтому включаем
-          HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
+          HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_SET);
 
           if (v_bat > MAX_CHARGE_V) {
             // Напряжение на батарее превышает верхний предел, завершаем зарядку
-            HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_RESET);
             isСharged = false;
             chargeCycles++;
             if (isMemReady) {
@@ -193,23 +207,23 @@ int main(void)
               memBuffer[0] = (uint8_t) isСharged;
               decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
 
-              memBuffer[5] = (uint8_t) (chargeCycles >> 8);
-              memBuffer[6] = (uint8_t) chargeCycles;
+              memBuffer[5] = (chargeCycles >> 8) & 0xFF;
+              memBuffer[6] = chargeCycles & 0xFF;
               decompose32into8(computeCRC32((uint32_t) chargeCycles), memBuffer, 7);
 
-              if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
+              if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
                 isMemReady = false;
               }
             }
           }
         } else {
           // Ранее (до перезагрузки) зарядка не проводилась, поэтому выключаем
-          HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+          HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_RESET);
 
           if (v_bat < MIN_CHARGE_V) {
             // Зарядка выключена, но напряжение на батарее стало ниже нижнего предела
             // Включаем зарядку
-            HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_SET);
             isСharged = true;
             // Количество циклов зарядки остаётся прежним
             if (isMemReady) {
@@ -218,7 +232,7 @@ int main(void)
               memBuffer[0] = (uint8_t) isСharged;
               decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
 
-              if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_8BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
+              if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
                 isMemReady = false;
               }
             }
@@ -443,7 +457,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, EE_Pin|CE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : IN_Pin */
   GPIO_InitStruct.Pin = IN_Pin;
@@ -451,12 +465,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(IN_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : EN_Pin */
-  GPIO_InitStruct.Pin = EN_Pin;
+  /*Configure GPIO pin : EE_Pin */
+  GPIO_InitStruct.Pin = EE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(EE_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : CE_Pin */
+  GPIO_InitStruct.Pin = CE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(EN_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(CE_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
