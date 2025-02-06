@@ -80,6 +80,10 @@ uint8_t memBuffer[MEM_BUFFER_SIZE];
 bool isСharged = false;
 // Количество циклов зарядки батареи записанные в EEPROM
 uint16_t chargeCycles;
+// Ожидаем окончания процесса записи данных в EEPROM
+volatile uint32_t time_irq;
+volatile bool isTxCompleted = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -203,7 +207,7 @@ int main(void)
             HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_RESET);
             isСharged = false;
             chargeCycles++;
-            if (isMemReady) {
+            if (isMemReady && !isTxCompleted) {
               // Сохраняем статус зарядки в память и на 1 увеличиваем количество циклов зарядки
               // Заполняем буфер для передачи в EEPROM
               memBuffer[0] = (uint8_t) isСharged;
@@ -213,7 +217,8 @@ int main(void)
               memBuffer[6] = chargeCycles & 0xFF;
               decompose32into8(computeCRC32((uint32_t) chargeCycles), memBuffer, 7);
 
-              if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
+              // Запись в микросхему EEPROM не произодится, можем отправить данные
+              if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) != HAL_OK) {
                 isMemReady = false;
               }
             }
@@ -228,19 +233,23 @@ int main(void)
             HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_SET);
             isСharged = true;
             // Количество циклов зарядки остаётся прежним
-            if (isMemReady) {
+            if (isMemReady && !isTxCompleted) {
               // Сохраняем статус зарядки в память, количество циклов зарядки оставляем без изменения
               // Заполняем буфер для передачи в EEPROM
               memBuffer[0] = (uint8_t) isСharged;
               decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
 
-              if (HAL_I2C_Mem_Write(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE, 100) != HAL_OK) {
+              if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) != HAL_OK) {
                 isMemReady = false;
               }
             }
           }
         }
       }
+    }
+    // Отсчитываем время необходимое микросхеме EEPROM для записи данных, 10 мс
+    if(isMemReady && isTxCompleted && (HAL_GetTick() - time_irq) > 10) {
+          isTxCompleted = false;
     }
     /* USER CODE END WHILE */
 
@@ -489,6 +498,13 @@ static void MX_GPIO_Init(void)
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
   if (hadc->Instance == ADC1) {
     adc_end = true;
+  }
+}
+
+void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c) {
+  if (hi2c->Instance == I2C1) {
+    isTxCompleted = true;
+    time_irq = HAL_GetTick();
   }
 }
 /* USER CODE END 4 */

@@ -63,6 +63,10 @@ void Error_Handler(void);
 #define IN_GPIO_Port GPIOB
 #define EE_Pin GPIO_PIN_5
 #define EE_GPIO_Port GPIOB
+#define SCL_Pin GPIO_PIN_6
+#define SCL_GPIO_Port GPIOB
+#define SDA_Pin GPIO_PIN_7
+#define SDA_GPIO_Port GPIOB
 #define CE_Pin GPIO_PIN_8
 #define CE_GPIO_Port GPIOB
 
