@@ -8,7 +8,7 @@
 
 <br/>
 <p align="center">
-    <img src="git_image/image.png" style="height: 689; width: 599; object-fit: contain">
+    <img src="git_image/image.png" style="height: 707; width: 566; object-fit: contain">
 </p>
 <br/>
 

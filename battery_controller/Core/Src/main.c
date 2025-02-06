@@ -35,12 +35,16 @@
 /* USER CODE BEGIN PD */
 // Два канала опрашиваем по одному разу каждый
 #define ADC_BUFFER_SIZE 2
+// Величина 4095 * 1.2 = 4914.0 используемая для получение v_ref
+#define INTERNAL_REF 4914.0
+
 // Падение напряжение на последовательно подключенном диоде
 #define V_DIODE 0.6
 // Минимальное напряжение на батарее, при котором запускаем зарядку
 #define MIN_CHARGE_V 3.4
 // Максимальное напряжение на батарее, при котором зарядку прекращаем
 #define MAX_CHARGE_V 3.8
+
 // Адрес микросхемы EEPROM на линии I2C, 7 бит сдвинутых влево на единицу
 #define ADDRESS (0x50 << 1)
 // Размер массива для работы с EEPROM
@@ -66,8 +70,6 @@ volatile bool adc_end = false;
 volatile uint16_t adcBuffer[ADC_BUFFER_SIZE];
 // Значение с канала Vrefint Channel, напряжение питания микроконтроллера
 double v_ref;
-// Величина 4095 * 1.2 = 4914 используемая для получение v_ref
-const double internal_ref = 4914;
 // Значение с канала IN0, напряжение Li-Ion батареи
 double v_bat;
 // Флаг готовности микросхемы
@@ -188,7 +190,7 @@ int main(void)
   while (1)
   {
     if (adc_end) {
-      v_ref = internal_ref / adcBuffer[0];
+      v_ref = INTERNAL_REF / adcBuffer[0];
       v_bat = adcBuffer[1] * v_ref / 4095 + V_DIODE;
       // Проверяем наличие внешнего питания
       if (HAL_GPIO_ReadPin(IN_GPIO_Port, IN_Pin) == GPIO_PIN_SET) {
