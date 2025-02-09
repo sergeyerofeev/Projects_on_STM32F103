@@ -65,25 +65,12 @@ I2C_HandleTypeDef hi2c1;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
-// Если преобразование ADC1 завершено, adc_end получает значение true
-volatile bool adc_end = false;
-volatile uint16_t adcBuffer[ADC_BUFFER_SIZE];
-// Значение с канала Vrefint Channel, напряжение питания микроконтроллера
-double v_ref;
-// Значение с канала IN0, напряжение Li-Ion батареи
-double v_bat;
-// Флаг готовности микросхемы
-bool isMemReady = false;
-// Буфер для работы с EEPROM (чтение и запись)
-uint8_t memBuffer[MEM_BUFFER_SIZE];
-// �?дёт ли зарядка
-bool isСharged = false;
-// Количество циклов зарядки батареи записанные в EEPROM
-uint16_t chargeCycles;
-// Ожидаем окончания процесса записи данных в EEPROM
-volatile uint32_t time_irq;
-volatile bool isTxCompleted = false;
+// Если преобразование ADC1 завершено, isEndADC получает значение true
+static volatile bool isEndADC = false;
 
+// Ожидаем окончания процесса записи данных в EEPROM
+static volatile uint32_t time_irq;
+static volatile bool isTxCompleted = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -110,7 +97,20 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  // Буфер для измеренных значений с ADC
+  uint16_t adcBuffer[ADC_BUFFER_SIZE];
+  // Значение с канала Vrefint Channel, напряжение питания микроконтроллера
+  double v_ref;
+  // Значение с канала IN0, напряжение Li-Ion батареи
+  double v_bat;
+  // Флаг готовности микросхемы
+  bool isMemReady = false;
+  // Буфер для работы с EEPROM (чтение и запись)
+  uint8_t memBuffer[MEM_BUFFER_SIZE];
+  // Статус зарядки, true - батарея находится на зарядке
+  bool isСharged = false;
+  // Количество циклов зарядки батареи записанные в EEPROM
+  uint16_t chargeCycles;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -193,7 +193,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if (adc_end) {
+    if (isEndADC) {
       v_ref = INTERNAL_REF / adcBuffer[0];
       v_bat = adcBuffer[1] * v_ref / 4095 + V_DIODE;
       // Проверяем наличие внешнего питания
@@ -497,7 +497,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
   if (hadc->Instance == ADC1) {
-    adc_end = true;
+    isEndADC = true;
   }
 }
 
