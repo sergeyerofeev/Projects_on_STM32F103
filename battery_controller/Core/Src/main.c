@@ -136,7 +136,7 @@ int main(void)
   MX_TIM3_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  // Подаём притание на микросхему EEPROM, низкий уровень сигнала включает PNP транзистор
+  // Подаём питание на микросхему EEPROM, низкий уровень сигнала включает PNP транзистор
   HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_RESET);
   HAL_Delay(1000);
   // Проверям готовность, 5 попыток, таймаут 100 мс
@@ -145,7 +145,7 @@ int main(void)
     RCC->AHBENR |= RCC_AHBENR_CRCEN; // Включить тактирование CRC
   } else {
     // Если при инициализации произошла ошибка, перезапускаем микроконтроллер
-    // Отключаем питание микросхемы EEPROM
+    // Отключаем питание микросхемы EEPROM, переводим вывод в Z состояние
     HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_SET);
     HAL_Delay(1000);
     __set_FAULTMASK(1); // Запрещаем все маскируемые прерывания
