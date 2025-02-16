@@ -26,8 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdbool.h>
-#include <string.h>
+
 #include "crc32.h"
 /* USER CODE END Includes */
 
@@ -64,12 +63,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-// Если преобразование ADC1 завершено, isEndADC получает значение true
-static volatile bool isEndADC = false;
 
-// Ожидаем окончания процесса записи данных в EEPROM
-static volatile uint32_t time_irq;
-static volatile bool isTxCompleted = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -296,18 +290,7 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
-  if (hadc->Instance == ADC1) {
-    isEndADC = true;
-  }
-}
 
-void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c) {
-  if (hi2c->Instance == I2C1) {
-    isTxCompleted = true;
-    time_irq = HAL_GetTick();
-  }
-}
 /* USER CODE END 4 */
 
 /**

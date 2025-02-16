@@ -21,7 +21,8 @@
 #include "adc.h"
 
 /* USER CODE BEGIN 0 */
-
+// Если преобразование ADC1 завершено, isEndADC получает значение true
+volatile bool isEndADC = false;
 /* USER CODE END 0 */
 
 ADC_HandleTypeDef hadc1;
@@ -147,5 +148,9 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 }
 
 /* USER CODE BEGIN 1 */
-
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
+  if (hadc->Instance == ADC1) {
+    isEndADC = true;
+  }
+}
 /* USER CODE END 1 */

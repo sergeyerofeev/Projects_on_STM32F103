@@ -21,7 +21,10 @@
 #include "i2c.h"
 
 /* USER CODE BEGIN 0 */
-
+// Сохраняем текущее время,что начать отсчёт 10 мс, необходимых для сохранения данных в EEPROM
+volatile uint32_t time_irq;
+// Если процесс передачи данных завершён, isTxCompleted получает значение true
+volatile bool isTxCompleted = false;
 /* USER CODE END 0 */
 
 I2C_HandleTypeDef hi2c1;
@@ -116,5 +119,10 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
 }
 
 /* USER CODE BEGIN 1 */
-
+void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c) {
+  if (hi2c->Instance == I2C1) {
+    isTxCompleted = true;
+    time_irq = HAL_GetTick();
+  }
+}
 /* USER CODE END 1 */
