@@ -27,7 +27,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include "crc32.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
