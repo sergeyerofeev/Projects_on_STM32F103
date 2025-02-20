@@ -21,10 +21,11 @@
 #include "i2c.h"
 
 /* USER CODE BEGIN 0 */
-// Сохраняем текущее время,что начать отсчёт 10 мс, необходимых для сохранения данных в EEPROM
-volatile uint32_t time_irq;
-// Если процесс передачи данных завершён, isTxCompleted получает значение true
-volatile bool isTxCompleted = false;
+#include "FreeRTOS.h"
+#include "timers.h"
+#include "cmsis_os.h"
+
+extern osTimerId_t timerEEPROMHandle;
 /* USER CODE END 0 */
 
 I2C_HandleTypeDef hi2c1;
@@ -83,7 +84,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     __HAL_RCC_I2C1_CLK_ENABLE();
 
     /* I2C1 interrupt Init */
-    HAL_NVIC_SetPriority(I2C1_EV_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(I2C1_EV_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(I2C1_EV_IRQn);
   /* USER CODE BEGIN I2C1_MspInit 1 */
 
@@ -121,8 +122,13 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
 /* USER CODE BEGIN 1 */
 void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c) {
   if (hi2c->Instance == I2C1) {
-    isTxCompleted = true;
-    time_irq = HAL_GetTick();
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    // Запускаем таймер для отсчёта времени, необходимого для записи в EEPROM
+    xTimerStartFromISR(timerEEPROMHandle, &xHigherPriorityTaskWoken);
+
+    // Если задача была разблокирована и имеет более высокий приоритет, выполняем переключение контекста
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
   }
 }
 /* USER CODE END 1 */

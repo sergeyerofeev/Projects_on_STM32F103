@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 #include "adc.h"
 #include "dma.h"
 #include "i2c.h"
@@ -26,7 +27,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdbool.h>
+#include "crc32.h"
+#include "my_config.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,22 +39,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-// Два канала опрашиваем по одному разу каждый
-#define ADC_BUFFER_SIZE 2
-// Величина 4095 * 1.2 = 4914.0 используемая для получение v_ref
-#define INTERNAL_REF 4914.0
 
-// Падение напряжение на последовательно подключенном диоде
-#define V_DIODE 0.6
-// Минимальное напряжение на батарее, при котором запускаем зарядку
-#define MIN_CHARGE_V 3.4
-// Максимальное напряжение на батарее, при котором зарядку прекращаем
-#define MAX_CHARGE_V 3.8
-
-// Адрес микросхемы EEPROM на линии I2C, 7 бит сдвинутых влево на единицу
-#define ADDRESS (0x50 << 1)
-// Размер массива для работы с EEPROM
-#define MEM_BUFFER_SIZE 11
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -62,11 +50,21 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+  // Буфер для измеренных значений с ADC
+  uint16_t adcBuffer[ADC_BUFFER_SIZE];
+  // Флаг готовности микросхемы
+  bool isMemReady = false;
+  // Буфер для работы с EEPROM (чтение и запись)
+  uint8_t memBuffer[MEM_BUFFER_SIZE];
+  // Статус зарядки, true - батарея находится на зарядке
+  bool isСharged = false;
+  // Количество циклов зарядки батареи записанные в EEPROM
+  uint16_t chargeCycles;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -84,20 +82,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  // Буфер для измеренных значений с ADC
-  uint16_t adcBuffer[ADC_BUFFER_SIZE];
-  // Значение с канала Vrefint Channel, напряжение питания микроконтроллера
-  double v_ref;
-  // Значение с канала IN0, напряжение Li-Ion батареи
-  double v_bat;
-  // Флаг готовности микросхемы
-  bool isMemReady = false;
-  // Буфер для работы с EEPROM (чтение и запись)
-  uint8_t memBuffer[MEM_BUFFER_SIZE];
-  // Статус зарядки, true - батарея находится на зарядке
-  bool isСharged = false;
-  // Количество циклов зарядки батареи записанные в EEPROM
-  uint16_t chargeCycles;
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -123,6 +108,7 @@ int main(void)
   MX_TIM3_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  // Данный код в задачу не выносим, т.к. он выполняется один раз при старте программы
   // Подаём питание на микросхему EEPROM, низкий уровень сигнала включает PNP транзистор
   HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_RESET);
   HAL_Delay(1000);
@@ -176,68 +162,21 @@ int main(void)
   HAL_TIM_Base_Start(&htim3);
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if (isEndADC) {
-      v_ref = INTERNAL_REF / adcBuffer[0];
-      v_bat = adcBuffer[1] * v_ref / 4095 + V_DIODE;
-      // Проверяем наличие внешнего питания
-      if (HAL_GPIO_ReadPin(IN_GPIO_Port, IN_Pin) == GPIO_PIN_SET) {
-        if (isСharged) {
-          // Ранее (до перезагрузки) зарядка уже была запущена, поэтому включаем
-          HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_SET);
-
-          if (v_bat > MAX_CHARGE_V) {
-            // Напряжение на батарее превышает верхний предел, завершаем зарядку
-            HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_RESET);
-            isСharged = false;
-            chargeCycles++;
-            if (isMemReady && !isTxCompleted) {
-              // Сохраняем статус зарядки в память и на 1 увеличиваем количество циклов зарядки
-              // Заполняем буфер для передачи в EEPROM
-              memBuffer[0] = (uint8_t) isСharged;
-              decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
-
-              memBuffer[5] = (chargeCycles >> 8) & 0xFF;
-              memBuffer[6] = chargeCycles & 0xFF;
-              decompose32into8(computeCRC32((uint32_t) chargeCycles), memBuffer, 7);
-
-              // Запись в микросхему EEPROM не произодится, можем отправить данные
-              if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) != HAL_OK) {
-                isMemReady = false;
-              }
-            }
-          }
-        } else {
-          // Ранее (до перезагрузки) зарядка не проводилась, поэтому выключаем
-          HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_RESET);
-
-          if (v_bat < MIN_CHARGE_V) {
-            // Зарядка выключена, но напряжение на батарее стало ниже нижнего предела
-            // Включаем зарядку
-            HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_SET);
-            isСharged = true;
-            // Количество циклов зарядки остаётся прежним
-            if (isMemReady && !isTxCompleted) {
-              // Сохраняем статус зарядки в память, количество циклов зарядки оставляем без изменения
-              // Заполняем буфер для передачи в EEPROM
-              memBuffer[0] = (uint8_t) isСharged;
-              decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
-
-              if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) != HAL_OK) {
-                isMemReady = false;
-              }
-            }
-          }
-        }
-      }
-    }
-    // Отсчитываем время необходимое микросхеме EEPROM для записи данных, 10 мс
-    if(isMemReady && isTxCompleted && (HAL_GetTick() - time_irq) > 10) {
-          isTxCompleted = false;
-    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -291,6 +230,27 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM2 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM2) {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
