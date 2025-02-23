@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * File Name          : freertos.c
-  * Description        : Code for freertos applications
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * File Name          : freertos.c
+ * Description        : Code for freertos applications
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
@@ -25,8 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
-
+#include "timers.h"
 #include "crc32.h"
 #include <stdbool.h>
 #include "my_config.h"
@@ -49,6 +48,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+TaskHandle_t taskBatMonitorHandle;
+TimerHandle_t xTimer;
 extern I2C_HandleTypeDef hi2c1;
 
 // Буфер для измеренных значений с ADC
@@ -63,44 +64,29 @@ extern bool isСharged;
 extern uint16_t chargeCycles;
 // Запись в EEPROM закончена
 volatile bool isTxCompleted = false;
+
 /* USER CODE END Variables */
-/* Definitions for taskBatMonitor */
-osThreadId_t taskBatMonitorHandle;
-const osThreadAttr_t taskBatMonitor_attributes = {
-  .name = "taskBatMonitor",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-/* Definitions for taskBatCharging */
-osThreadId_t taskBatChargingHandle;
-const osThreadAttr_t taskBatCharging_attributes = {
-  .name = "taskBatCharging",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
-/* Definitions for timerEEPROM */
-osTimerId_t timerEEPROMHandle;
-const osTimerAttr_t timerEEPROM_attributes = {
-  .name = "timerEEPROM"
-};
+/* Definitions for logTask */
+osThreadId_t logTaskHandle;
+const osThreadAttr_t logTask_attributes = { .name = "logTask", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityLow, };
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-
+void taskBatMonitorFunc(void*);
+void vTimerCallback(TimerHandle_t);
 /* USER CODE END FunctionPrototypes */
 
-void batMonitor(void *argument);
-void batCharging(void *argument);
-void vTimerCallback(void *argument);
+void logTaskFunc(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
-void MX_FREERTOS_Init(void) {
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
+void MX_FREERTOS_Init(void)
+{
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -113,12 +99,8 @@ void MX_FREERTOS_Init(void) {
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 
-  /* Create the timer(s) */
-  /* creation of timerEEPROM */
-  timerEEPROMHandle = osTimerNew(vTimerCallback, osTimerOnce, NULL, &timerEEPROM_attributes);
-
   /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
+  xTimer = xTimerCreate("xTimer", pdMS_TO_TICKS(1000), pdFALSE, (void*) 0, vTimerCallback);
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -126,14 +108,11 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of taskBatMonitor */
-  taskBatMonitorHandle = osThreadNew(batMonitor, NULL, &taskBatMonitor_attributes);
-
-  /* creation of taskBatCharging */
-  taskBatChargingHandle = osThreadNew(batCharging, NULL, &taskBatCharging_attributes);
+  /* creation of logTask */
+  logTaskHandle = osThreadNew(logTaskFunc, NULL, &logTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+  xTaskCreate(taskBatMonitorFunc, "taskBatMonitor", 128, NULL, osPriorityNormal, taskBatMonitorHandle);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -142,19 +121,28 @@ void MX_FREERTOS_Init(void) {
 
 }
 
-/* USER CODE BEGIN Header_batMonitor */
+/* USER CODE BEGIN Header_logTaskFunc */
 /**
-  * @brief  Function implementing the taskBatMonitor thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_batMonitor */
-void batMonitor(void *argument)
+ * @brief  Function implementing the logTask thread.
+ * @param  argument: Not used
+ * @retval None
+ */
+/* USER CODE END Header_logTaskFunc */
+void logTaskFunc(void *argument)
 {
-  /* USER CODE BEGIN batMonitor */
+  /* USER CODE BEGIN logTaskFunc */
   /* Infinite loop */
-  for(;;)
-  {
+  for (;;) {
+    osDelay(1);
+  }
+  /* USER CODE END logTaskFunc */
+}
+
+/* Private application code --------------------------------------------------*/
+/* USER CODE BEGIN Application */
+void taskBatMonitorFunc(void *argument)
+{
+  for (;;) {
     // Ожидаем готовности преобразования напряжения на батарее
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     // v_ref - это значение с канала Vrefint Channel, напряжение питания микроконтроллера
@@ -213,39 +201,13 @@ void batMonitor(void *argument)
         }
       }
     }
-
   }
-  /* USER CODE END batMonitor */
 }
 
-/* USER CODE BEGIN Header_batCharging */
-/**
-* @brief Function implementing the taskBatCharging thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_batCharging */
-void batCharging(void *argument)
+void vTimerCallback(TimerHandle_t xTimer)
 {
-  /* USER CODE BEGIN batCharging */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END batCharging */
-}
-
-/* vTimerCallback function */
-void vTimerCallback(void *argument)
-{
-  /* USER CODE BEGIN vTimerCallback */
+  // Запись в EEPROM закончена, устанавливаем флаг
   isTxCompleted = true;
-  /* USER CODE END vTimerCallback */
 }
-
-/* Private application code --------------------------------------------------*/
-/* USER CODE BEGIN Application */
-
 /* USER CODE END Application */
 

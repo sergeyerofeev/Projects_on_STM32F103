@@ -25,7 +25,7 @@
 #include "timers.h"
 #include "cmsis_os.h"
 
-extern osTimerId_t timerEEPROMHandle;
+extern TimerHandle_t xTimer;
 /* USER CODE END 0 */
 
 I2C_HandleTypeDef hi2c1;
@@ -125,7 +125,7 @@ void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
     // Запускаем таймер для отсчёта времени, необходимого для записи в EEPROM
-    xTimerStartFromISR(timerEEPROMHandle, &xHigherPriorityTaskWoken);
+    xTimerStartFromISR(xTimer, &xHigherPriorityTaskWoken);
 
     // Если задача была разблокирована и имеет более высокий приоритет, выполняем переключение контекста
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);

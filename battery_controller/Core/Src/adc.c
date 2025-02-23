@@ -25,7 +25,7 @@
 #include "task.h"
 #include "cmsis_os.h"
 
-extern osThreadId taskBatMonitorHandle;
+extern TaskHandle_t taskBatMonitorHandle;
 /* USER CODE END 0 */
 
 ADC_HandleTypeDef hadc1;
