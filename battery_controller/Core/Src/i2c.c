@@ -120,15 +120,5 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
 }
 
 /* USER CODE BEGIN 1 */
-void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c) {
-  if (hi2c->Instance == I2C1) {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    // Запускаем таймер для отсчёта времени, необходимого для записи в EEPROM
-    xTimerStartFromISR(xTimer, &xHigherPriorityTaskWoken);
-
-    // Если задача была разблокирована и имеет более высокий приоритет, выполняем переключение контекста
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-  }
-}
 /* USER CODE END 1 */
