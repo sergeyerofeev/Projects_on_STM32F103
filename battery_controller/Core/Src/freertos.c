@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include "timers.h"
 #include "crc32.h"
+#include "iwdg.h"
 #include <stdbool.h>
 #include "my_config.h"
 /* USER CODE END Includes */
@@ -51,32 +52,31 @@
 TaskHandle_t taskBatMonitorHandle;
 TimerHandle_t xTimer;
 extern I2C_HandleTypeDef hi2c1;
+extern IWDG_HandleTypeDef hiwdg;
 
 // Буфер для измеренных значений с ADC
 extern uint16_t adcBuffer[];
 // Флаг готовности микросхемы
-extern bool isMemReady;
+bool isMemReady = true;
 // Буфер для работы с EEPROM (чтение и запись)
-extern uint8_t memBuffer[];
+uint8_t memBuffer[MEM_BUFFER_SIZE];
 // Статус зарядки, true - батарея находится на зарядке
-extern bool isСharged;
+bool isСharged = false;
 // Количество циклов зарядки батареи записанные в EEPROM
-extern uint16_t chargeCycles;
+uint16_t chargeCycles;
+
 // Запись в EEPROM закончена
 volatile bool isTxCompleted = false;
 
 /* USER CODE END Variables */
 /* Definitions for logTask */
 osThreadId_t logTaskHandle;
-const osThreadAttr_t logTask_attributes = {
-  .name = "logTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
-};
+const osThreadAttr_t logTask_attributes = { .name = "logTask", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityLow, };
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 void taskBatMonitorFunc(void*);
+void taskBatStatusFunc(void*);
 void vTimerCallback(TimerHandle_t);
 /* USER CODE END FunctionPrototypes */
 
@@ -87,21 +87,22 @@ void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 /* USER CODE BEGIN PREPOSTSLEEP */
 __weak void PreSleepProcessing(uint32_t *ulExpectedIdleTime)
 {
-/* place for user code */
+  /* place for user code */
 }
 
 __weak void PostSleepProcessing(uint32_t *ulExpectedIdleTime)
 {
-/* place for user code */
+  /* place for user code */
 }
 /* USER CODE END PREPOSTSLEEP */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
-void MX_FREERTOS_Init(void) {
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
+void MX_FREERTOS_Init(void)
+{
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -128,6 +129,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   xTaskCreate(taskBatMonitorFunc, "taskBatMonitor", 128, NULL, osPriorityNormal, taskBatMonitorHandle);
+  xTaskCreate(taskBatStatusFunc, "taskBatMonitor", 128, NULL, osPriorityAboveNormal7, NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -148,13 +150,51 @@ void logTaskFunc(void *argument)
   /* USER CODE BEGIN logTaskFunc */
   /* Infinite loop */
   for (;;) {
-    osDelay(1);
+    vTaskDelete(NULL);
   }
   /* USER CODE END logTaskFunc */
 }
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+void taskBatStatusFunc(void *argument)
+{
+  for (;;) {
+    // Считаем из EEPROM флаг статуса зарядки и количество циклов зарядки батареи
+    if (HAL_I2C_Mem_Read(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE, 100) == HAL_OK) {
+      // Статус зарядки
+      // Вычисляем контрольную сумму из полученных из EEPROM данных
+      uint32_t dataCRC32 = computeCRC32((uint32_t) memBuffer[0]);
+      // Преобразуем считанную из EEPROM массив контрольной суммы в двойное слово
+      uint32_t saveCRC32 = (uint32_t) memBuffer[1] << 24 | memBuffer[2] << 16 | memBuffer[3] << 8 | memBuffer[4];
+      if (dataCRC32 == saveCRC32) {
+        // Если было сохранено 1, записываем true, если записан 0 - false
+        isСharged = (memBuffer[0] == 1);
+      } else {
+        // В случае ошибок при записи в EEPROM разядку запрещаем
+        isСharged = false;
+      }
+
+      // Количество циклов заряда батареи
+      // Вычисляем контрольную сумму из полученных из EEPROM данных
+      dataCRC32 = computeCRC32((uint32_t) memBuffer[5] << 8 | memBuffer[6]);
+      // Преобразуем считанную из EEPROM массив контрольной суммы в двойное слово
+      saveCRC32 = (uint32_t) memBuffer[7] << 24 | memBuffer[8] << 16 | memBuffer[9] << 8 | memBuffer[10];
+      if (dataCRC32 == saveCRC32) {
+        chargeCycles = (uint16_t) memBuffer[5] << 8 | memBuffer[6];
+      } else {
+        // В случае ошибок при записи в EEPROM количество циклов считаем равным 0
+        chargeCycles = 0;
+      }
+      HAL_IWDG_Refresh(&hiwdg); // Сбрасываем IWDG
+    } else {
+      isMemReady = false;
+    }
+    // Успешно получили все данные, удаляем задачу
+    vTaskDelete(NULL);
+  }
+}
+
 void taskBatMonitorFunc(void *argument)
 {
   for (;;) {
