@@ -25,10 +25,11 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
 #include "timers.h"
 #include "crc32.h"
 #include "iwdg.h"
-#include <stdbool.h>
+#include "i2c_er.h"
 #include "my_config.h"
 /* USER CODE END Includes */
 
