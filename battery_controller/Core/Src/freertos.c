@@ -27,6 +27,8 @@
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
 #include "timers.h"
+#include "queue.h"
+#include "semphr.h"
 #include "crc32.h"
 #include "iwdg.h"
 #include "i2c_er.h"

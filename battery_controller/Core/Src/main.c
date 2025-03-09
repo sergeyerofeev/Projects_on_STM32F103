@@ -105,12 +105,9 @@ int main(void)
   // Подаём питание на микросхему EEPROM, низкий уровень сигнала включает PNP транзистор
   HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_RESET);
   HAL_Delay(1000);
+  HAL_IWDG_Refresh(&hiwdg); // Сбрасываем IWDG
   // Проверям готовность, 5 попыток, таймаут 100 мс
-  if (HAL_I2C_IsDeviceReady(&hi2c1, ADDRESS, 5, 100) == HAL_OK) {
-    // Включаем тактирование CRC (подсчёт контрольной суммы)
-    RCC->AHBENR |= RCC_AHBENR_CRCEN;
-    HAL_IWDG_Refresh(&hiwdg); // Сбрасываем IWDG
-  } else {
+  if (HAL_I2C_IsDeviceReady(&hi2c1, ADDRESS, 5, 100) != HAL_OK) {
     // Если при инициализации произошла ошибка, перезапускаем микроконтроллер
     // Отключаем питание микросхемы EEPROM, переводим вывод в Z состояние
     HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_SET);
@@ -118,6 +115,8 @@ int main(void)
     __set_FAULTMASK(1); // Запрещаем все маскируемые прерывания
     NVIC_SystemReset(); // Программный сброс
   }
+  // Включаем тактирование CRC (подсчёт контрольной суммы)
+  RCC->AHBENR |= RCC_AHBENR_CRCEN;
 
   HAL_ADCEx_Calibration_Start(&hadc1);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adcBuffer, ADC_BUFFER_SIZE);
