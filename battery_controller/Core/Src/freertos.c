@@ -53,12 +53,15 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 TaskHandle_t taskBatMonitorHandle;
-TimerHandle_t xTimer;
+TimerHandle_t delayTimer;
+TimerHandle_t adcTimer;
+
+extern ADC_HandleTypeDef hadc1;
 extern I2C_HandleTypeDef hi2c1;
 extern IWDG_HandleTypeDef hiwdg;
 
 // Буфер для измеренных значений с ADC
-extern uint16_t adcBuffer[];
+uint16_t adcBuffer[ADC_BUFFER_SIZE];
 // Флаг готовности микросхемы
 bool isMemReady = true;
 // Буфер для работы с EEPROM (чтение и запись)
@@ -80,7 +83,8 @@ const osThreadAttr_t logTask_attributes = { .name = "logTask", .stack_size = 128
 /* USER CODE BEGIN FunctionPrototypes */
 void taskBatMonitorFunc(void*);
 void taskBatStatusFunc(void*);
-void vTimerCallback(TimerHandle_t);
+void vDelayTimerCallback(TimerHandle_t);
+void vAdcTimerCallback(TimerHandle_t);
 /* USER CODE END FunctionPrototypes */
 
 void logTaskFunc(void *argument);
@@ -119,7 +123,15 @@ void MX_FREERTOS_Init(void)
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
-  xTimer = xTimerCreate("xTimer", pdMS_TO_TICKS(1000), pdFALSE, (void*) 0, vTimerCallback);
+  // Таймер для выполнения задержки
+  delayTimer = xTimerCreate("delayTimer", pdMS_TO_TICKS(1000), pdFALSE, (void*) 0, vDelayTimerCallback);
+  // Таймер для периодического запуска измерения напряжения батареи
+  adcTimer = xTimerCreate("AdcPeriodTimer", pdMS_TO_TICKS(ADC_PERIOD), pdTRUE, (void*) 0, vAdcTimerCallback);
+  // Сразу запускаем периодический таймер
+  if (xTimerStart(adcTimer, 100) == pdFAIL) {
+    // Ошибка устанавливаем флаг в Event Group
+    __NOP();
+  }
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -131,7 +143,7 @@ void MX_FREERTOS_Init(void)
   logTaskHandle = osThreadNew(logTaskFunc, NULL, &logTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  xTaskCreate(taskBatMonitorFunc, "taskBatMonitor", 128, NULL, osPriorityNormal, taskBatMonitorHandle);
+  xTaskCreate(taskBatMonitorFunc, "taskBatMonitor", 128, NULL, osPriorityNormal, &taskBatMonitorHandle);
   xTaskCreate(taskBatStatusFunc, "taskBatMonitor", 128, NULL, osPriorityAboveNormal7, NULL);
   /* USER CODE END RTOS_THREADS */
 
@@ -203,10 +215,23 @@ void taskBatMonitorFunc(void *argument)
   for (;;) {
     // Ожидаем готовности преобразования напряжения на батарее
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    // Получаем среднее от измеренных значений
+    uint32_t adcVref = 0;
+    uint32_t adcCh0 = 0;
+    for (uint8_t i = 0; i < 16; i++) {
+      if (i % 2 == 0) {
+        adcVref += adcBuffer[i];
+      } else {
+        adcCh0 += adcBuffer[i];
+      }
+    }
+    adcVref >>= 3; // Среднее значение для Rank 1
+    adcCh0 >>= 3; // Среднее значение для Rank 2
+
     // v_ref - это значение с канала Vrefint Channel, напряжение питания микроконтроллера
-    double v_ref = INTERNAL_REF / adcBuffer[0];
+    double v_ref = INTERNAL_REF / adcVref;
     // v_bat - это значение с канала IN0, напряжение Li-Ion батареи
-    double v_bat = adcBuffer[1] * v_ref / 4095 + V_DIODE;
+    double v_bat = adcCh0 * v_ref / 4095 + V_DIODE;
     // Проверяем наличие внешнего питания
     if (HAL_GPIO_ReadPin(IN_GPIO_Port, IN_Pin) == GPIO_PIN_SET) {
       if (isСharged) {
@@ -262,10 +287,16 @@ void taskBatMonitorFunc(void *argument)
   }
 }
 
-void vTimerCallback(TimerHandle_t xTimer)
+void vDelayTimerCallback(TimerHandle_t xTimer)
 {
   // Запись в EEPROM закончена, устанавливаем флаг
   isTxCompleted = true;
+}
+
+void vAdcTimerCallback(TimerHandle_t xTimer)
+{
+  // Запускаем измерение напряжения, после измерения DMA автоматически остановиться
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adcBuffer, ADC_BUFFER_SIZE);
 }
 /* USER CODE END Application */
 

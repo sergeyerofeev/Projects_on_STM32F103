@@ -50,8 +50,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-// Буфер для измеренных значений с ADC
-uint16_t adcBuffer[ADC_BUFFER_SIZE];
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -119,8 +118,6 @@ int main(void)
   RCC->AHBENR |= RCC_AHBENR_CRCEN;
 
   HAL_ADCEx_Calibration_Start(&hadc1);
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &adcBuffer, ADC_BUFFER_SIZE);
-  HAL_TIM_Base_Start(&htim3);
   /* USER CODE END 2 */
 
   /* Init scheduler */
