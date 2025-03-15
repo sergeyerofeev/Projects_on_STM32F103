@@ -133,6 +133,7 @@ See http://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html. */
 header file. */
 /* USER CODE BEGIN 1 */
 #define configUSE_TIME_SLICING 0
+#define configEXPECTED_IDLE_TIME_BEFORE_SLEEP    100
 #define configASSERT( x ) if ((x) == 0) {taskDISABLE_INTERRUPTS(); for( ;; );}
 /* USER CODE END 1 */
 
