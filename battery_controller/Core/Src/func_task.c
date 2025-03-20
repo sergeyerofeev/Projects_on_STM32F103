@@ -156,8 +156,7 @@ void taskBatMonitorFunc(void *argument)
           HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_RESET);
           isСharged = false;
           chargeCycles++;
-          if (isMemReady && isTxCompleted) {
-            isTxCompleted = false;
+          if (1) {
             // Сохраняем статус зарядки в память и на 1 увеличиваем количество циклов зарядки
             // Заполняем буфер для передачи в EEPROM
             memBuffer[0] = (uint8_t) isСharged;
@@ -183,8 +182,7 @@ void taskBatMonitorFunc(void *argument)
           HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_SET);
           isСharged = true;
           // Количество циклов зарядки остаётся прежним
-          if (isMemReady && isTxCompleted) {
-            isTxCompleted = false;
+          if (1) {
             // Сохраняем статус зарядки в память, количество циклов зарядки оставляем без изменения
             // Заполняем буфер для передачи в EEPROM
             memBuffer[0] = (uint8_t) isСharged;
