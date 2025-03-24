@@ -91,7 +91,6 @@ void vBatStatusFunc(void *argument)
 void vCheckMemFunc(void *argument)
 {
   for (;;) {
-    //ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     uint32_t handleValue = 0;
     xTaskNotifyWait(0, 0, &handleValue, portMAX_DELAY);
     // Отключаем питание на микросхему EEPROM, высокий уровень сигнала отключает PNP транзистор
