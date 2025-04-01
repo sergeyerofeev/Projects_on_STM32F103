@@ -21,15 +21,12 @@ extern TaskHandle_t checkMemHandle;
 
 // Буфер для измеренных значений с ADC
 uint16_t adcBuffer[ADC_BUFFER_SIZE];
-// Флаг готовности микросхемы
-bool isMemReady = true;
 // Буфер для работы с EEPROM (чтение и запись)
 uint8_t memBuffer[MEM_BUFFER_SIZE];
 // Статус зарядки, true - батарея находится на зарядке
 bool isСharged = false;
 // Количество циклов зарядки батареи записанные в EEPROM
 uint16_t chargeCycles;
-
 
 // Функция задачи для однократного запуска и получения данных из EEPROM о статусе батареи
 void vBatStatusFunc(void *argument)
@@ -71,7 +68,7 @@ void vBatStatusFunc(void *argument)
         // Ошибка при доступе к EEPROM, в группе событий модифицируем биты
         // Мьютекс не освобждаем
         // Отправляем уведомление, в качестве значения передаём дескриптор текущей задачи
-        xTaskNotify(checkMemHandle, (uint32_t) batStatusHandle, eSetValueWithOverwrite);
+        xTaskNotify(checkMemHandle, (uint32_t ) batStatusHandle, eSetValueWithOverwrite);
         // Переводим задачу в режим ожидания
         vTaskSuspend(NULL);
 
@@ -85,7 +82,6 @@ void vBatStatusFunc(void *argument)
     vTaskDelete(NULL);
   }
 }
-
 
 // Функция задачи проверки готовности EEPROM и перезапуска линиии I2C в случае сбоя
 void vCheckMemFunc(void *argument)
@@ -121,12 +117,13 @@ void vCheckMemFunc(void *argument)
   }
 }
 
-
 void taskBatMonitorFunc(void *argument)
 {
   for (;;) {
     // Ожидаем готовности преобразования напряжения на батарее
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    // Ожидаем захвата мьютекса
+    xSemaphoreTake(mutexMem, portMAX_DELAY);
     // Получаем среднее от измеренных значений
     uint32_t adcVref = 0;
     uint32_t adcCh0 = 0;
@@ -155,19 +152,29 @@ void taskBatMonitorFunc(void *argument)
           HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_RESET);
           isСharged = false;
           chargeCycles++;
-          if (1) {
-            // Сохраняем статус зарядки в память и на 1 увеличиваем количество циклов зарядки
-            // Заполняем буфер для передачи в EEPROM
-            memBuffer[0] = (uint8_t) isСharged;
-            decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
 
-            memBuffer[5] = (chargeCycles >> 8) & 0xFF;
-            memBuffer[6] = chargeCycles & 0xFF;
-            decompose32into8(computeCRC32((uint32_t) chargeCycles), memBuffer, 7);
+          // Сохраняем статус зарядки в память и на 1 увеличиваем количество циклов зарядки
+          // Заполняем буфер для передачи в EEPROM
+          memBuffer[0] = (uint8_t) isСharged;
+          decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
 
+          memBuffer[5] = (chargeCycles >> 8) & 0xFF;
+          memBuffer[6] = chargeCycles & 0xFF;
+          decompose32into8(computeCRC32((uint32_t) chargeCycles), memBuffer, 7);
+          for (;;) {
             // Запись в микросхему EEPROM не произодится, можем отправить данные
-            if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) != HAL_OK) {
-              isMemReady = false;
+            if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) == HAL_OK) {
+              // Если запись прошла успешно, выходим из внутреннего цикла
+              break;
+            } else {
+              // Ошибка при доступе к EEPROM, в группе событий модифицируем биты
+              // Мьютекс не освобждаем
+              // Отправляем уведомление, в качестве значения передаём дескриптор текущей задачи
+              xTaskNotify(checkMemHandle, (uint32_t ) taskBatMonitorHandle, eSetValueWithOverwrite);
+              // Переводим задачу в режим ожидания
+              vTaskSuspend(NULL);
+              // После возврата снова попытаемся записать значние по указанному адресу,
+              // то есть запускаем новую итерацию внутреннего цикла
             }
           }
         }
@@ -181,19 +188,31 @@ void taskBatMonitorFunc(void *argument)
           HAL_GPIO_WritePin(CE_GPIO_Port, CE_Pin, GPIO_PIN_SET);
           isСharged = true;
           // Количество циклов зарядки остаётся прежним
-          if (1) {
-            // Сохраняем статус зарядки в память, количество циклов зарядки оставляем без изменения
-            // Заполняем буфер для передачи в EEPROM
-            memBuffer[0] = (uint8_t) isСharged;
-            decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
 
-            if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) != HAL_OK) {
-              isMemReady = false;
+          // Сохраняем статус зарядки в память, количество циклов зарядки оставляем без изменения
+          // Заполняем буфер для передачи в EEPROM
+          memBuffer[0] = (uint8_t) isСharged;
+          decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
+          for (;;) {
+            if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) == HAL_OK) {
+              // Если запись прошла успешно, выходим из внутреннего цикла
+              break;
+            } else {
+              // Ошибка при доступе к EEPROM, в группе событий модифицируем биты
+              // Мьютекс не освобждаем
+              // Отправляем уведомление, в качестве значения передаём дескриптор текущей задачи
+              xTaskNotify(checkMemHandle, (uint32_t ) taskBatMonitorHandle, eSetValueWithOverwrite);
+              // Переводим задачу в режим ожидания
+              vTaskSuspend(NULL);
+              // После возврата снова попытаемся записать значние по указанному адресу,
+              // то есть запускаем новую итерацию внутреннего цикла
             }
           }
         }
       }
     }
+    // Освобождаем семафор
+    xSemaphoreGive(mutexMem);
   }
 }
 
