@@ -161,22 +161,7 @@ void taskBatMonitorFunc(void *argument)
           memBuffer[5] = (chargeCycles >> 8) & 0xFF;
           memBuffer[6] = chargeCycles & 0xFF;
           decompose32into8(computeCRC32((uint32_t) chargeCycles), memBuffer, 7);
-          for (;;) {
-            // Запись в микросхему EEPROM не произодится, можем отправить данные
-            if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) == HAL_OK) {
-              // Если запись прошла успешно, выходим из внутреннего цикла
-              break;
-            } else {
-              // Ошибка при доступе к EEPROM, в группе событий модифицируем биты
-              // Мьютекс не освобждаем
-              // Отправляем уведомление, в качестве значения передаём дескриптор текущей задачи
-              xTaskNotify(checkMemHandle, (uint32_t ) taskBatMonitorHandle, eSetValueWithOverwrite);
-              // Переводим задачу в режим ожидания
-              vTaskSuspend(NULL);
-              // После возврата снова попытаемся записать значние по указанному адресу,
-              // то есть запускаем новую итерацию внутреннего цикла
-            }
-          }
+          memWrite();
         }
       } else {
         // Ранее (до перезагрузки) зарядка не проводилась, поэтому выключаем
@@ -193,21 +178,7 @@ void taskBatMonitorFunc(void *argument)
           // Заполняем буфер для передачи в EEPROM
           memBuffer[0] = (uint8_t) isСharged;
           decompose32into8(computeCRC32((uint32_t) isСharged), memBuffer, 1);
-          for (;;) {
-            if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) == HAL_OK) {
-              // Если запись прошла успешно, выходим из внутреннего цикла
-              break;
-            } else {
-              // Ошибка при доступе к EEPROM, в группе событий модифицируем биты
-              // Мьютекс не освобждаем
-              // Отправляем уведомление, в качестве значения передаём дескриптор текущей задачи
-              xTaskNotify(checkMemHandle, (uint32_t ) taskBatMonitorHandle, eSetValueWithOverwrite);
-              // Переводим задачу в режим ожидания
-              vTaskSuspend(NULL);
-              // После возврата снова попытаемся записать значние по указанному адресу,
-              // то есть запускаем новую итерацию внутреннего цикла
-            }
-          }
+          memWrite();
         }
       }
     }
@@ -216,3 +187,22 @@ void taskBatMonitorFunc(void *argument)
   }
 }
 
+// Внутренняя функция для записи в EEPROM
+static void memWrite()
+{
+  for (;;) {
+    if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) == HAL_OK) {
+      // Если запись прошла успешно, выходим из внутреннего цикла
+      break;
+    } else {
+      // Ошибка при доступе к EEPROM, в группе событий модифицируем биты
+      // Мьютекс не освобждаем
+      // Отправляем уведомление, в качестве значения передаём дескриптор текущей задачи
+      xTaskNotify(checkMemHandle, (uint32_t ) taskBatMonitorHandle, eSetValueWithOverwrite);
+      // Переводим задачу в режим ожидания
+      vTaskSuspend(NULL);
+      // После возврата снова попытаемся записать значние по указанному адресу,
+      // то есть запускаем новую итерацию внутреннего цикла
+    }
+  }
+}
