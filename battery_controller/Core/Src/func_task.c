@@ -16,8 +16,11 @@ extern IWDG_HandleTypeDef hiwdg;
 
 extern SemaphoreHandle_t mutexMem;
 
+extern TaskHandle_t taskBatMonitorHandle;
 extern TaskHandle_t batStatusHandle;
 extern TaskHandle_t checkMemHandle;
+
+static void memWrite();
 
 // Буфер для измеренных значений с ADC
 uint16_t adcBuffer[ADC_BUFFER_SIZE];
@@ -198,7 +201,7 @@ static void memWrite()
       // Ошибка при доступе к EEPROM, в группе событий модифицируем биты
       // Мьютекс не освобждаем
       // Отправляем уведомление, в качестве значения передаём дескриптор текущей задачи
-      xTaskNotify(checkMemHandle, (uint32_t ) taskBatMonitorHandle, eSetValueWithOverwrite);
+      xTaskNotify(checkMemHandle, (uint32_t) taskBatMonitorHandle, eSetValueWithOverwrite);
       // Переводим задачу в режим ожидания
       vTaskSuspend(NULL);
       // После возврата снова попытаемся записать значние по указанному адресу,
