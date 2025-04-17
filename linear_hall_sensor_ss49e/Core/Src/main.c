@@ -49,8 +49,8 @@ volatile uint8_t adc_flag = 0;
 uint8_t adc_flag_first = 1;
 
 uint32_t adc0 = 0;
-uint32_t adc1 = 0;
-uint32_t adc2 = 0;
+uint32_t adc_vref = 0;
+uint32_t adc_in0 = 0;
 uint32_t adc3 = 0;
 uint32_t adc4 = 0;
 uint32_t adc5 = 0;
@@ -167,24 +167,24 @@ int main(void)
 
       for (uint8_t i = 0; i < 48; i += 6) {
         adc0 += adc[i];
-        adc1 += adc[i + 1];
-        adc2 += adc[i + 2];
+        adc_vref += adc[i + 1];
+        adc_in0 += adc[i + 2];
         adc3 += adc[i + 3];
         adc4 += adc[i + 4];
         adc5 += adc[i + 5];
       }
       // Вычисляем среднее значение для каждой линии
       adc0 >>= 3;
-      adc1 >>= 3;
-      adc2 >>= 3;
+      adc_vref >>= 3;
+      adc_in0 >>= 3;
       adc3 >>= 3;
       adc4 >>= 3;
       adc5 >>= 3;
 
       // Вычисляем произошедшее смещение
       dif0 = adc0_init - adc0;
-      dif1 = adc1_init - adc1;
-      dif2 = adc2_init - adc2;
+      dif1 = adc1_init - adc_vref;
+      dif2 = adc2_init - adc_in0;
       dif3 = adc3_init - adc3;
       dif4 = adc4_init - adc4;
       dif5 = adc5_init - adc5;
