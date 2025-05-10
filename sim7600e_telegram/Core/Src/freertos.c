@@ -117,7 +117,7 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	  vTaskDelete(NULL);
   }
   /* USER CODE END StartDefaultTask */
 }
