@@ -45,7 +45,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-
+TimerHandle_t xTimer;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -83,7 +83,18 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
+  xTimer = xTimerCreate(
+	  "MyTimer",            // Имя таймера (для отладки)
+	  pdMS_TO_TICKS(1000),  // Период таймера в тиках (1000 мс)
+	  pdTRUE,               // pdTRUE - создаём периодический таймер
+	  (void *)0,            // Идентификатор таймера (можно использовать для передачи данных)
+	  vTimerCallback        // Функция обратного вызова таймера
+  );
+
+  if (xTimerStart(xTimer, 10) == pdFAIL) {
+	// Не удалось запустить таймер, очередь таймеров переполнена
+	__NOP;
+  }
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
