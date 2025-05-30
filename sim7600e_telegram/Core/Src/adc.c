@@ -124,7 +124,6 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
 
 void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 {
-
   if(adcHandle->Instance==ADC1)
   {
   /* USER CODE BEGIN ADC1_MspDeInit 0 */
@@ -147,5 +146,19 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 }
 
 /* USER CODE BEGIN 1 */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+  if (hadc->Instance == ADC1) {
+    // Останавливаем работу ADC1, т. к. включен режим Continious Conversion Mode
+    HAL_ADC_Stop(&hadc1);
 
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    // Отправляем уведомление задаче
+    vTaskNotifyGiveFromISR(taskBatMonitorHandle, &xHigherPriorityTaskWoken);
+
+    // Если задача была разблокирована и имеет более высокий приоритет, выполняем переключение контекста
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+  }
+}
 /* USER CODE END 1 */
