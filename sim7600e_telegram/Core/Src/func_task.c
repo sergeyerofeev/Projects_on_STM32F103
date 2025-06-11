@@ -5,9 +5,6 @@
 #include "cmsis_os.h"
 
 #include <stdbool.h>
-#include "i2c_er.h"
-#include "crc32.h"
-#include "iwdg.h"
 #include "my_config.h"
 
 extern ADC_HandleTypeDef hadc1;
