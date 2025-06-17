@@ -43,7 +43,6 @@
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
-extern USBD_HandleTypeDef hUsbDeviceFS;
 // Флаг готовности полученных с хоста данных
 extern volatile bool isReceived;
 // Структура для сохранения reportId и массива данных
