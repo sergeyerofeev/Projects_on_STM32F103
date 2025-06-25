@@ -84,7 +84,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_TIMERS */
   xTimer = xTimerCreate(
-	  "MyTimer",            // Имя таймера (для отладки)
+	  "PeriodTimer",            // Имя таймера (для отладки)
 	  pdMS_TO_TICKS(1000),  // Период таймера в тиках (1000 мс)
 	  pdTRUE,               // pdTRUE - создаём периодический таймер
 	  (void *)0,            // Идентификатор таймера (можно использовать для передачи данных)
