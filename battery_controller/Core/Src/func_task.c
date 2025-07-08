@@ -209,16 +209,3 @@ static void memWrite()
     }
   }
 }
-
-// Функция работы с пьезокерамическим излучателем
-void vTask_BuzzerBeep(void *pvParameters) {
-  BuzzerParameters_t buzzerParameters;
-  for (;;) {
-    xQueueReceive(BuzzerQueue, &buzzerParameters, portMAX_DELAY);
-
-    BuzzerSetFreq(buzzerParameters.freq);
-    BuzzerSetVolume(buzzerParameters.volume);
-    vTaskDelay(buzzerParameters.duration);
-    BuzzerSetVolume(BUZZER_VOLUME_MUTE);
-  }
-}
