@@ -209,3 +209,92 @@ static void memWrite()
     }
   }
 }
+
+
+void vTask_BuzzerBeep(void *pvParameters)
+{
+  BuzzerParameters_t buzzerParameters;
+
+  for(;;)
+  {
+    xQueueReceive(BuzzerQueue, &buzzerParameters, portMAX_DELAY);
+
+    BuzzerSetFreq(buzzerParameters.freq);
+    BuzzerSetVolume(buzzerParameters.volume);
+    vTaskDelay(buzzerParameters.duration);
+    BuzzerSetVolume(BUZZER_VOLUME_MUTE);
+  }
+}
+
+
+void vTask_GetStartButton(void *pvParameters)
+{
+  BuzzerParameters_t buzzerLocalParameters;
+  u32 localStartButtonState;
+  EXTI_InitTypeDef EXTI_Options;
+  u32 notePointer = 0;
+
+  EXTI_Options.EXTI_Line = START_BUTTON_EXTI_LINE;
+  EXTI_Options.EXTI_Mode = EXTI_Mode_Interrupt;
+  EXTI_Options.EXTI_Trigger = EXTI_Trigger_Rising;
+  EXTI_Options.EXTI_LineCmd = ENABLE;
+
+  buzzerLocalParameters.volume = BUZZER_VOLUME_MAX;
+  buzzerLocalParameters.duration = BUZZER_DEFAULT_DURATION;
+
+  /*
+   * first semaphore take after creation (NEED!! it issued after power up)
+   */
+  xSemaphoreTake(StartButtonSemaphore, portMAX_DELAY);
+
+  for(;;)
+  {
+    /*
+     * take semaphore from button interrupt
+     */
+    xSemaphoreTake(StartButtonSemaphore, portMAX_DELAY);
+
+    /*
+     * buzzer "pick" on button click and wait
+     */
+    buzzerLocalParameters.freq = NOTE_C7;
+    xQueueSend(BuzzerQueue, (void *)&buzzerLocalParameters, portMAX_DELAY);
+    vTaskDelay(250);
+
+    /*
+     * "pick" new note while button pressed, but not more 3 times
+     */
+    while(GPIO_ReadInputDataBit(START_BUTTON_PORT, START_BUTTON_PIN) == 1)
+    {
+      buzzerLocalParameters.freq = GL_BuzzerAllNotes[OCTAVE_FOUR_START_INDEX + notePointer];
+      xQueueSend(BuzzerQueue, (void *)&buzzerLocalParameters, portMAX_DELAY);
+      vTaskDelay(100);
+
+      if(notePointer++ >= 3)
+        break;
+    }
+
+    /*
+     * wait while button pressed
+     */
+    while(GPIO_ReadInputDataBit(START_BUTTON_PORT, START_BUTTON_PIN) == 1)
+    {
+      vTaskDelay(100);
+    }
+
+    localStartButtonState = (notePointer >= 3) ? (BUTTON_LONG_PRESSED) : (BUTTON_SHORT_PRESSED);
+    xQueueSend(StartButtonQueue, (void *)&localStartButtonState, 0);
+
+    /*
+     * "pick" the last time and re-enable interrupt on click
+     */
+
+    buzzerLocalParameters.freq = NOTE_C8;
+    xQueueSend(BuzzerQueue, (void *)&buzzerLocalParameters, portMAX_DELAY);
+
+    EXTI_Init(&EXTI_Options); //Enable interrupt (disabled in interrupts.c)
+    notePointer = 0;
+
+    vTaskDelay(100);
+  }
+}
