@@ -120,7 +120,7 @@ void vCheckMemFunc(void *argument)
   }
 }
 
-void taskBatMonitorFunc(void *argument)
+/*void taskBatMonitorFunc(void *argument)
 {
   for (;;) {
     // Ожидаем готовности преобразования напряжения на батарее
@@ -188,7 +188,7 @@ void taskBatMonitorFunc(void *argument)
     // Освобождаем семафор
     xSemaphoreGive(mutexMem);
   }
-}
+}*/
 
 // Внутренняя функция для записи в EEPROM
 static void memWrite()
