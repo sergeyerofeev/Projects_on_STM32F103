@@ -191,7 +191,7 @@ void taskBatMonitorFunc(void *argument)
 }
 
 // Внутренняя функция для записи в EEPROM
-/*static void memWrite()
+static void memWrite()
 {
   for (;;) {
     if (HAL_I2C_Mem_Write_IT(&hi2c1, ADDRESS, 0x00, I2C_MEMADD_SIZE_16BIT, memBuffer, MEM_BUFFER_SIZE) == HAL_OK) {
@@ -208,4 +208,4 @@ void taskBatMonitorFunc(void *argument)
       // то есть запускаем новую итерацию внутреннего цикла
     }
   }
-}*/
+}
