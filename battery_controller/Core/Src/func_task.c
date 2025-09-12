@@ -119,7 +119,7 @@ void vCheckMemFunc(void *argument)
     taskYIELD(); // Передача управления другим задачам
   }
 }
-/*
+
 void taskBatMonitorFunc(void *argument)
 {
   for (;;) {
@@ -209,4 +209,4 @@ static void memWrite()
     }
   }
 }
-*/
+
