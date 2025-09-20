@@ -85,7 +85,7 @@ void vBatStatusFunc(void *argument)
     vTaskDelete(NULL);
   }
 }
-/*
+
 // Функция задачи проверки готовности EEPROM и перезапуска линиии I2C в случае сбоя
 void vCheckMemFunc(void *argument)
 {
@@ -209,4 +209,4 @@ static void memWrite()
     }
   }
 }
-*/
+
