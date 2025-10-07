@@ -189,7 +189,7 @@ void taskBatMonitorFunc(void *argument)
     xSemaphoreGive(mutexMem);
   }
 }
-/*
+
 // Внутренняя функция для записи в EEPROM
 static void memWrite()
 {
@@ -209,4 +209,4 @@ static void memWrite()
     }
   }
 }
-*/
+
