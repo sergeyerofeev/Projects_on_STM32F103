@@ -21,9 +21,8 @@
 #define ADDRESS (0x50 << 1)
 // Размер массива для работы с EEPROM
 #define MEM_BUFFER_SIZE 11
-
+/*
 // Константы для работы с пьезокерамическим излучателем
-
 u16 GL_BuzzerAllNotes[] = {
 	261, 277, 294, 311, 329, 349, 370, 392, 415, 440, 466, 494,
 	523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988,
@@ -43,3 +42,4 @@ u16 GL_BuzzerAllNotes[] = {
 #define BUZZER_VOLUME_MUTE			(0)
 
 #endif /* INC_MY_CONFIG_H_ */
+*/
