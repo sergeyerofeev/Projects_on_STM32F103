@@ -23,7 +23,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include "ssd1306.h"
+#include "ssd1306_fonts.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -89,6 +91,51 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  ssd1306_Init();
+  ssd1306_Fill(Black);
+
+  uint8_t y = 0;
+  ssd1306_Fill(Black);
+
+  ssd1306_SetCursor(2, y);
+  ssd1306_WriteString("Font 7x10 1", Font_7x10, White);
+  y += 11;
+
+  ssd1306_SetCursor(2, y);
+  ssd1306_WriteString("Font 7x10 2", Font_7x10, White);
+  y += 11;
+
+  ssd1306_SetCursor(2, y);
+  ssd1306_WriteString("Font 7x10 3", Font_7x10, White);
+  y += 11;
+
+  ssd1306_SetCursor(2, y);
+  ssd1306_WriteString("Font 7x10 4", Font_7x10, White);
+  y += 11;
+
+  ssd1306_SetCursor(2, y);
+  ssd1306_WriteString("Font 7x10 5", Font_7x10, White);
+  y += 10;
+
+  ssd1306_SetCursor(2, y);
+  ssd1306_WriteString("Font 7x10 6", Font_7x10, White);
+
+  ssd1306_UpdateScreen();
+
+  HAL_Delay(3000);
+  y = 0;
+  ssd1306_SetCursor(2, y);
+  ssd1306_WriteString("                  ", Font_7x10, White);
+  ssd1306_UpdateScreen();
+
+  HAL_Delay(3000);
+
+  char *str = "v1.6.4.8";
+  // Размещаем строку по центру экрана
+  uint8_t x = (128 - strlen(str) * 7) / 2;
+  ssd1306_SetCursor(x, y);
+  ssd1306_WriteString(str, Font_7x10, White);
+  ssd1306_UpdateScreen();
 
   /* USER CODE END 2 */
 
@@ -147,28 +194,6 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM2 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  /* USER CODE BEGIN Callback 0 */
-
-  /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM2)
-  {
-    HAL_IncTick();
-  }
-  /* USER CODE BEGIN Callback 1 */
-
-  /* USER CODE END Callback 1 */
-}
-
-/**
   * @brief  This function is executed in case of error occurrence.
   * @retval None
   */
@@ -182,8 +207,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
