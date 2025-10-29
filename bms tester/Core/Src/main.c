@@ -1,29 +1,33 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "i2c.h"
+#include "tim.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <string.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
 /* USER CODE END Includes */
@@ -35,7 +39,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define RX_BUFSIZE 11
+#define TX_BUFSIZE 10
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,7 +51,12 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+char str[20] = { 0, };
+uint8_t countFlag = 0;
+bool flag21 = false;
+bool isRxFullData = false;
+uint8_t txData[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x17, 0x02, 0x85, 0xFF };
+uint8_t rxData[11] = { 0, };
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -90,59 +100,120 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  MX_USART1_UART_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   ssd1306_Init();
   ssd1306_Fill(Black);
 
-  uint8_t y = 0;
-  ssd1306_Fill(Black);
+  __HAL_TIM_CLEAR_FLAG(&htim4, TIM_SR_UIF); // очищаем флаг
+  HAL_TIM_Base_Start_IT(&htim4);
 
-  ssd1306_SetCursor(2, y);
-  ssd1306_WriteString("Font 7x10 1", Font_7x10, White);
-  y += 11;
+  HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
 
-  ssd1306_SetCursor(2, y);
-  ssd1306_WriteString("Font 7x10 2", Font_7x10, White);
-  y += 11;
+  /*uint8_t y = 0;
+   ssd1306_Fill(Black);
 
-  ssd1306_SetCursor(2, y);
-  ssd1306_WriteString("Font 7x10 3", Font_7x10, White);
-  y += 11;
+   ssd1306_SetCursor(2, y);
+   ssd1306_WriteString("Font 7x10 1", Font_7x10, White);
+   y += 11;
 
-  ssd1306_SetCursor(2, y);
-  ssd1306_WriteString("Font 7x10 4", Font_7x10, White);
-  y += 11;
+   ssd1306_SetCursor(2, y);
+   ssd1306_WriteString("Font 7x10 2", Font_7x10, White);
+   y += 11;
 
-  ssd1306_SetCursor(2, y);
-  ssd1306_WriteString("Font 7x10 5", Font_7x10, White);
-  y += 10;
+   ssd1306_SetCursor(2, y);
+   ssd1306_WriteString("Font 7x10 3", Font_7x10, White);
+   y += 11;
 
-  ssd1306_SetCursor(2, y);
-  ssd1306_WriteString("Font 7x10 6", Font_7x10, White);
+   ssd1306_SetCursor(2, y);
+   ssd1306_WriteString("Font 7x10 4", Font_7x10, White);
+   y += 11;
 
-  ssd1306_UpdateScreen();
+   ssd1306_SetCursor(2, y);
+   ssd1306_WriteString("Font 7x10 5", Font_7x10, White);
+   y += 10;
 
-  HAL_Delay(3000);
-  y = 0;
-  ssd1306_SetCursor(2, y);
-  ssd1306_WriteString("                  ", Font_7x10, White);
-  ssd1306_UpdateScreen();
+   ssd1306_SetCursor(2, y);
+   ssd1306_WriteString("Font 7x10 6", Font_7x10, White);
 
-  HAL_Delay(3000);
+   ssd1306_UpdateScreen();
 
-  char *str = "v1.6.4.8";
-  // Размещаем строку по центру экрана
-  uint8_t x = (128 - strlen(str) * 7) / 2;
-  ssd1306_SetCursor(x, y);
-  ssd1306_WriteString(str, Font_7x10, White);
-  ssd1306_UpdateScreen();
+   HAL_Delay(3000);
+   y = 0;
+   ssd1306_SetCursor(2, y);
+   ssd1306_WriteString("                  ", Font_7x10, White);
+   ssd1306_UpdateScreen();
+
+   HAL_Delay(3000);
+
+   char *str = "v1.6.4.8";
+   // Размещаем строку по центру экрана
+   uint8_t x = (128 - strlen(str) * 7) / 2;
+   ssd1306_SetCursor(x, y);
+   ssd1306_WriteString(str, Font_7x10, White);
+   ssd1306_UpdateScreen();*/
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+  while (1) {
+    /*	  if(flag21) {
+     flag21 = false;
+     // Выводим на экран сообщение об ошибке 21
+     ssd1306_Fill(Black);
+     str = "Error 21";
+     // Размещаем строку по центру экрана
+     uint8_t x = (128 - strlen(str) * 7) / 2;
+     ssd1306_SetCursor(x, SSD1306_HEIGHT / 2 - Font_7x10.height / 2);
+     ssd1306_WriteString(str, Font_7x10, White);
+     ssd1306_UpdateScreen();
+     }*/
+    if (isRxFullData) {
+      // Получили данные от BMS
+      // Сформируем строку для вывода на дисплей, например "v 1.6.4.8"
+      uint16_t ver = (rxData[8] << 8) | rxData[7];
+      if (ver == 0) {
+        // Если число равно 0, выводим нулевую версию
+        strcpy(str, "v 0.0.0.0");
+      } else {
+        str[0] = 'v';
+        str[1] = ' ';
+        bool first0 = true;
+        uint8_t j = 2; // Начальный индекс, с которого записываем символы в массив str
+
+        for (int8_t i = 12; i >= 0; i -= 4) {
+          if ((ver >> i == 0) && first0) {
+            // Последовательно отбрасываем первые нули
+            continue;
+          } else {
+            first0 = false;
+          }
+          // Преобразуем шестнадцатиричное значение в символ
+          str[j++] = "0123456789ABCDEF"[ver >> i & 0x0F];
+          str[j++] = '.';
+        }
+        // Вместо последней точки ставим символ конца строки
+        str[--j] = '\0';
+      }
+      // Выводим на экран строку с номером версии
+      ssd1306_Fill(Black);
+      // Размещаем строку по центру экрана
+      uint8_t x = (128 - strlen(str) * 7) / 2;
+      ssd1306_SetCursor(x, SSD1306_HEIGHT / 2 - Font_7x10.height / 2);
+      ssd1306_WriteString(str, Font_7x10, White);
+      ssd1306_UpdateScreen();
+    } else {
+      // Если данные от BMS не поступили выводим в центре экрана значение счётчика
+      str[0] = "0123456789ABCDEF"[countFlag >> 4 & 0x0F];
+      str[1] = "0123456789ABCDEF"[countFlag & 0x0F];
+      // Размещаем строку по центру экрана
+      uint8_t x = (128 - strlen(str) * 7) / 2;
+      ssd1306_SetCursor(x, SSD1306_HEIGHT / 2 - Font_7x10.height / 2);
+      ssd1306_WriteString(str, Font_7x10, White);
+      ssd1306_UpdateScreen();
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -190,6 +261,25 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  if (htim->Instance == TIM4) {
+    // Отправляем запрос по UART
+    HAL_UART_Transmit_IT(&huart1, txData, TX_BUFSIZE);
+    // Считаем количество отправленных запросов
+    countFlag++;
+    /*if(countFlag >= 4) {
+     flag21 = true; // Отправили 4 запроса, но ответа не получили, ошибка 21
+     HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
+     }*/
+  }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+  if (huart->Instance == USART1) {
+    HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
+    isRxFullData = true;
+  }
+}
 
 /* USER CODE END 4 */
 
@@ -202,8 +292,7 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-  while (1)
-  {
+  while (1) {
   }
   /* USER CODE END Error_Handler_Debug */
 }
