@@ -193,6 +193,20 @@ void ssd1306_UpdateScreen(void) {
 }
 
 /*
+* Если заливаем всю строку целиком, то в качестве x указываем 0 (начало строки).
+* На место width подставляем ширину экрана SSD1306_WIDTH
+* height принимает значение высоты используемого шрифта, например Font_7x10.height
+* Параметр y начальная позиция по высоте, необходимо вычислить.
+ */
+void SSD1306_ClearArea(uint8_t x, uint8_t y, uint8_t width, uint8_t height, SSD1306_COLOR color) {
+    for (uint8_t i = 0; i < height; i++) {
+        for (uint8_t j = 0; j < width; j++) {
+            SSD1306_DrawPixel(x + j, y + i, color);
+        }
+    }
+}
+
+/*
  * Draw one pixel in the screenbuffer
  * X => X Coordinate
  * Y => Y Coordinate

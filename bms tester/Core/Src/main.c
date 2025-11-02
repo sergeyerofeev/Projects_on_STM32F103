@@ -41,6 +41,7 @@
 /* USER CODE BEGIN PD */
 #define RX_BUFSIZE 11
 #define TX_BUFSIZE 10
+#define SWAP_BYTES(x) ((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -53,16 +54,20 @@
 /* USER CODE BEGIN PV */
 char str[20] = { 0, };
 uint8_t countFlag = 0;
+char strCount[3] = {0, };
 bool flag21 = false;
 bool isRxFullData = false;
 uint8_t txData[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x17, 0x02, 0x85, 0xFF };
 uint8_t rxData[11] = { 0, };
+// Первая позиция вывода символа на экран SSD1306
+uint8_t x = 0;
+uint8_t y = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+uint16_t CheckSum(uint8_t data[], int len);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -71,11 +76,10 @@ void SystemClock_Config(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
 
   /* USER CODE BEGIN 1 */
 
@@ -165,8 +169,9 @@ int main(void)
      ssd1306_Fill(Black);
      str = "Error 21";
      // Размещаем строку по центру экрана
-     uint8_t x = (128 - strlen(str) * 7) / 2;
-     ssd1306_SetCursor(x, SSD1306_HEIGHT / 2 - Font_7x10.height / 2);
+     x = (SSD1306_WIDTH - strlen(str) * Font_7x10.width) / 2;
+     y = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
+     ssd1306_SetCursor(x, y);
      ssd1306_WriteString(str, Font_7x10, White);
      ssd1306_UpdateScreen();
      }*/
@@ -198,20 +203,23 @@ int main(void)
         str[--j] = '\0';
       }
       // Выводим на экран строку с номером версии
-      ssd1306_Fill(Black);
+      HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
       // Размещаем строку по центру экрана
-      uint8_t x = (128 - strlen(str) * 7) / 2;
-      ssd1306_SetCursor(x, SSD1306_HEIGHT / 2 - Font_7x10.height / 2);
+      x = (SSD1306_WIDTH - strlen(str) * Font_7x10.width) / 2;
+      y = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
+      ssd1306_SetCursor(x, y);
       ssd1306_WriteString(str, Font_7x10, White);
       ssd1306_UpdateScreen();
     } else {
       // Если данные от BMS не поступили выводим в центре экрана значение счётчика
-      str[0] = "0123456789ABCDEF"[countFlag >> 4 & 0x0F];
-      str[1] = "0123456789ABCDEF"[countFlag & 0x0F];
+      strCount[0] = "0123456789ABCDEF"[countFlag >> 4 & 0x0F];
+      strCount[1] = "0123456789ABCDEF"[countFlag & 0x0F];
       // Размещаем строку по центру экрана
-      uint8_t x = (128 - strlen(str) * 7) / 2;
-      ssd1306_SetCursor(x, SSD1306_HEIGHT / 2 - Font_7x10.height / 2);
-      ssd1306_WriteString(str, Font_7x10, White);
+      x = (SSD1306_WIDTH - strlen(strCount) * Font_7x10.width) / 2;
+      y = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
+      ssd1306_SetCursor(x, y);
+      ssd1306_Fill(Black);
+      ssd1306_WriteString(strCount, Font_7x10, White);
       ssd1306_UpdateScreen();
     }
     /* USER CODE END WHILE */
@@ -222,17 +230,16 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
+  RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -240,22 +247,19 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
-  {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -267,6 +271,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     HAL_UART_Transmit_IT(&huart1, txData, TX_BUFSIZE);
     // Считаем количество отправленных запросов
     countFlag++;
+    if (isRxFullData) {
+      isRxFullData = false;
+      HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
+    }
     /*if(countFlag >= 4) {
      flag21 = true; // Отправили 4 запроса, но ответа не получили, ошибка 21
      HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
@@ -276,19 +284,28 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart->Instance == USART1) {
-    HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
+    //HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
     isRxFullData = true;
   }
+}
+
+uint16_t CheckSum(uint8_t data[], int len) {
+  uint16_t checksum = 0;
+
+  for (int i = 2; i < len; i++) {
+    checksum += data[i];
+  }
+  checksum = ~checksum;
+  return SWAP_BYTES(checksum);
 }
 
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
+void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
