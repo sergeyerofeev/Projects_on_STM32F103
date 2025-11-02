@@ -39,6 +39,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define ARRAY_COPY(dest, src) memcpy(dest, src, sizeof(src))
+
 #define RX_BUFSIZE 11
 #define TX_BUFSIZE 10
 #define SWAP_BYTES(x) ((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
@@ -52,13 +54,27 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+bool isTransmit = false;
 char str[20] = { 0, };
 uint8_t countFlag = 0;
 char strCount[3] = {0, };
 bool flag21 = false;
 bool isRxFullData = false;
-uint8_t txData[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x17, 0x02, 0x85, 0xFF };
+uint8_t txData[] = { 0, };
 uint8_t rxData[11] = { 0, };
+
+// Данные для BMS
+// Версия прошивки BMS
+uint8_t addr17[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x17, 0x02, 0x85, 0xFF };
+// Текущее значение остаточной мощности, 0-100%
+uint8_t addr32[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x32, 0x02, 0x6A, 0xFF };
+// Текущая ёмкость, в mAh
+uint8_t addr39[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x39, 0x02, 0x63, 0xFF };
+// Текущее напряжение,  в V
+uint8_t addr3A[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x3A, 0x02, 0x62, 0xFF };
+// Вендор зашитый в BMS
+uint8_t addr60[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x60, 0x04, 0x3A, 0xFF };
+
 // Первая позиция вывода символа на экран SSD1306
 uint8_t x = 0;
 uint8_t y = 0;
@@ -113,51 +129,7 @@ int main(void) {
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_SR_UIF); // очищаем флаг
   HAL_TIM_Base_Start_IT(&htim4);
 
-  HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
-
-  /*uint8_t y = 0;
-   ssd1306_Fill(Black);
-
-   ssd1306_SetCursor(2, y);
-   ssd1306_WriteString("Font 7x10 1", Font_7x10, White);
-   y += 11;
-
-   ssd1306_SetCursor(2, y);
-   ssd1306_WriteString("Font 7x10 2", Font_7x10, White);
-   y += 11;
-
-   ssd1306_SetCursor(2, y);
-   ssd1306_WriteString("Font 7x10 3", Font_7x10, White);
-   y += 11;
-
-   ssd1306_SetCursor(2, y);
-   ssd1306_WriteString("Font 7x10 4", Font_7x10, White);
-   y += 11;
-
-   ssd1306_SetCursor(2, y);
-   ssd1306_WriteString("Font 7x10 5", Font_7x10, White);
-   y += 10;
-
-   ssd1306_SetCursor(2, y);
-   ssd1306_WriteString("Font 7x10 6", Font_7x10, White);
-
-   ssd1306_UpdateScreen();
-
-   HAL_Delay(3000);
-   y = 0;
-   ssd1306_SetCursor(2, y);
-   ssd1306_WriteString("                  ", Font_7x10, White);
-   ssd1306_UpdateScreen();
-
-   HAL_Delay(3000);
-
-   char *str = "v1.6.4.8";
-   // Размещаем строку по центру экрана
-   uint8_t x = (128 - strlen(str) * 7) / 2;
-   ssd1306_SetCursor(x, y);
-   ssd1306_WriteString(str, Font_7x10, White);
-   ssd1306_UpdateScreen();*/
-
+  //HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -175,6 +147,22 @@ int main(void) {
      ssd1306_WriteString(str, Font_7x10, White);
      ssd1306_UpdateScreen();
      }*/
+    if(isTransmit) {
+      isTransmit = false;
+      HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
+      // Размер от
+      HAL_UART_Transmit_IT(&huart1, txData, TX_BUFSIZE);
+      // Считаем количество отправленных запросов
+      countFlag++;
+      if (isRxFullData) {
+        isRxFullData = false;
+        HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
+      }
+      /*if(countFlag >= 4) {
+       flag21 = true; // Отправили 4 запроса, но ответа не получили, ошибка 21
+       HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
+       }*/
+    }
     if (isRxFullData) {
       // Получили данные от BMS
       // Сформируем строку для вывода на дисплей, например "v 1.6.4.8"
@@ -267,18 +255,8 @@ void SystemClock_Config(void) {
 /* USER CODE BEGIN 4 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM4) {
-    // Отправляем запрос по UART
-    HAL_UART_Transmit_IT(&huart1, txData, TX_BUFSIZE);
-    // Считаем количество отправленных запросов
-    countFlag++;
-    if (isRxFullData) {
-      isRxFullData = false;
-      HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
-    }
-    /*if(countFlag >= 4) {
-     flag21 = true; // Отправили 4 запроса, но ответа не получили, ошибка 21
-     HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
-     }*/
+    // Прошёл интервал в 1 секунду, можем сделать запрос по UART
+    isTransmit = true;
   }
 }
 
