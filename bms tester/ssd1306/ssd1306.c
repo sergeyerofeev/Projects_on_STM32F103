@@ -201,7 +201,7 @@ void ssd1306_UpdateScreen(void) {
 void SSD1306_ClearArea(uint8_t x, uint8_t y, uint8_t width, uint8_t height, SSD1306_COLOR color) {
     for (uint8_t i = 0; i < height; i++) {
         for (uint8_t j = 0; j < width; j++) {
-            SSD1306_DrawPixel(x + j, y + i, color);
+            ssd1306_DrawPixel(x + j, y + i, color);
         }
     }
 }

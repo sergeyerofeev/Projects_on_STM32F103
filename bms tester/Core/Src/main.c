@@ -22,14 +22,15 @@
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
+#include "addr_data.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -39,11 +40,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ARRAY_COPY(dest, src) memcpy(dest, src, sizeof(src))
 
-#define RX_BUFSIZE 11
-#define TX_BUFSIZE 10
-#define SWAP_BYTES(x) ((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -54,26 +51,21 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-bool isTransmit = false;
-char str[20] = { 0, };
-uint8_t countFlag = 0;
-char strCount[3] = {0, };
-bool flag21 = false;
-bool isRxFullData = false;
-uint8_t txData[] = { 0, };
-uint8_t rxData[11] = { 0, };
+uint8_t addrCount = 0;    // Позиция в структуре адресов
 
-// Данные для BMS
-// Версия прошивки BMS
-uint8_t addr17[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x17, 0x02, 0x85, 0xFF };
-// Текущее значение остаточной мощности, 0-100%
-uint8_t addr32[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x32, 0x02, 0x6A, 0xFF };
-// Текущая ёмкость, в mAh
-uint8_t addr39[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x39, 0x02, 0x63, 0xFF };
-// Текущее напряжение,  в V
-uint8_t addr3A[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x3A, 0x02, 0x62, 0xFF };
-// Вендор зашитый в BMS
-uint8_t addr60[] = { 0x5A, 0xA5, 0x01, 0x3D, 0x22, 0x01, 0x60, 0x04, 0x3A, 0xFF };
+bool isTransmit = false;
+bool isReceive = false;
+
+// Все данные с BMS получены
+bool isComplite = false;
+
+uint8_t countFlag = 0;
+char strCount[3] = { 0, };
+bool flag21 = false;
+
+bool isTimPeriod = false;
+// Размер буфера для приёма данных указываем максимального размера
+uint8_t rxData[13] = { 0, };
 
 // Первая позиция вывода символа на экран SSD1306
 uint8_t x = 0;
@@ -83,7 +75,7 @@ uint8_t y = 0;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-uint16_t CheckSum(uint8_t data[], int len);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -135,79 +127,94 @@ int main(void) {
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
-    /*	  if(flag21) {
-     flag21 = false;
-     // Выводим на экран сообщение об ошибке 21
-     ssd1306_Fill(Black);
-     str = "Error 21";
-     // Размещаем строку по центру экрана
-     x = (SSD1306_WIDTH - strlen(str) * Font_7x10.width) / 2;
-     y = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
-     ssd1306_SetCursor(x, y);
-     ssd1306_WriteString(str, Font_7x10, White);
-     ssd1306_UpdateScreen();
-     }*/
-    if(isTransmit) {
-      isTransmit = false;
-      HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
-      // Размер от
-      HAL_UART_Transmit_IT(&huart1, txData, TX_BUFSIZE);
-      // Считаем количество отправленных запросов
-      countFlag++;
-      if (isRxFullData) {
-        isRxFullData = false;
-        HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
-      }
-      /*if(countFlag >= 4) {
-       flag21 = true; // Отправили 4 запроса, но ответа не получили, ошибка 21
-       HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
-       }*/
-    }
-    if (isRxFullData) {
-      // Получили данные от BMS
-      // Сформируем строку для вывода на дисплей, например "v 1.6.4.8"
-      uint16_t ver = (rxData[8] << 8) | rxData[7];
-      if (ver == 0) {
-        // Если число равно 0, выводим нулевую версию
-        strcpy(str, "v 0.0.0.0");
-      } else {
-        str[0] = 'v';
-        str[1] = ' ';
-        bool first0 = true;
-        uint8_t j = 2; // Начальный индекс, с которого записываем символы в массив str
-
-        for (int8_t i = 12; i >= 0; i -= 4) {
-          if ((ver >> i == 0) && first0) {
-            // Последовательно отбрасываем первые нули
-            continue;
-          } else {
-            first0 = false;
-          }
-          // Преобразуем шестнадцатиричное значение в символ
-          str[j++] = "0123456789ABCDEF"[ver >> i & 0x0F];
-          str[j++] = '.';
-        }
-        // Вместо последней точки ставим символ конца строки
-        str[--j] = '\0';
-      }
-      // Выводим на экран строку с номером версии
-      HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
-      // Размещаем строку по центру экрана
-      x = (SSD1306_WIDTH - strlen(str) * Font_7x10.width) / 2;
-      y = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
-      ssd1306_SetCursor(x, y);
-      ssd1306_WriteString(str, Font_7x10, White);
-      ssd1306_UpdateScreen();
-    } else {
+    if (isTimPeriod) {
+      isTimPeriod = false;
       // Если данные от BMS не поступили выводим в центре экрана значение счётчика
       strCount[0] = "0123456789ABCDEF"[countFlag >> 4 & 0x0F];
       strCount[1] = "0123456789ABCDEF"[countFlag & 0x0F];
       // Размещаем строку по центру экрана
-      x = (SSD1306_WIDTH - strlen(strCount) * Font_7x10.width) / 2;
-      y = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
+      x = (SSD1306_WIDTH - strlen(strCount) * Font_16x26.width) / 2;
+      y = SSD1306_HEIGHT / 2 - Font_16x26.height / 2;
       ssd1306_SetCursor(x, y);
       ssd1306_Fill(Black);
-      ssd1306_WriteString(strCount, Font_7x10, White);
+      ssd1306_WriteString(strCount, Font_16x26, White);
+      ssd1306_UpdateScreen();
+    }
+
+    if (isReceive) {
+      isReceive = false;
+      // Получили данные от BMS
+      switch (bmsData[addrCount].addr) {
+        case 0x17:
+          // Версия прошивки BMS
+          uint16_t version = (rxData[8] << 8) | rxData[7];
+          if (version == 0) {
+            // Если число равно 0, выводим нулевую версию
+            strcpy(bmsData[addrCount].strRes, "v 0.0.0.0");
+          } else {
+            bmsData[addrCount].strRes[0] = 'v';
+            bmsData[addrCount].strRes[1] = ' ';
+
+            uint8_t j = 2; // Начальный индекс, с которого записываем символы в строковый массив
+            bool first = true;
+
+            for (int8_t i = 12; i >= 0; i -= 4) {
+              if ((version >> i == 0) && first) {
+                // Последовательно отбрасываем первые нули
+                continue;
+              } else {
+                first = false;
+              }
+              // Преобразуем шестнадцатиричное значение в символ
+              bmsData[addrCount].strRes[j++] = "0123456789ABCDEF"[(version) >> i & 0x0F];
+              bmsData[addrCount].strRes[j++] = '.';
+            }
+            // Вместо последней точки ставим символ конца строки
+            bmsData[addrCount].strRes[--j] = '\0';
+          }
+          break;
+
+        case 0x32:
+          // Текущее значение остаточной мощности, 0-100%
+          uint8_t power = rxData[7];
+          snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u %%", power);
+          break;
+        case 0x31:
+          // Текущая остаточная емкость, в mAh
+          uint16_t capacity = (rxData[8] << 8) | rxData[7];
+          snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u mAh", capacity);
+          break;
+        case 0x34:
+          // Текущее напряжение,  в V
+          int16_t voltage = (rxData[8] << 8) | rxData[7];
+          snprintf(bmsData[addrCount].strRes, STR_SIZE, "%d,%d V", voltage / 100, voltage % 100);
+          break;
+        case 0x60:
+          // Вендор зашитый в BMS
+          uint32_t vendor = (rxData[7] << 24) | (rxData[8] << 16) | (rxData[9] << 8) | rxData[10];
+          snprintf(bmsData[addrCount].strRes, STR_SIZE, "%lX", vendor);
+          break;
+      }
+      addrCount++;
+      if (addrCount < 5) {
+        // Снова запускаем чтение данных
+        HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
+        HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
+      } else {
+        HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер
+        isComplite = true;
+      }
+    }
+
+    if (isComplite) {
+      isComplite = false;
+      ssd1306_Fill(Black);
+      // Выводим данные на экран
+      for (uint8_t i = 0, y = 2; i < 5; i++, y += 13) {
+        x = (SSD1306_WIDTH - strlen(bmsData[i].strRes) * Font_7x10.width) / 2;
+        ssd1306_SetCursor(x, y);
+        ssd1306_WriteString(bmsData[i].strRes, Font_7x10, White);
+      }
       ssd1306_UpdateScreen();
     }
     /* USER CODE END WHILE */
@@ -256,25 +263,17 @@ void SystemClock_Config(void) {
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM4) {
     // Прошёл интервал в 1 секунду, можем сделать запрос по UART
-    isTransmit = true;
+    HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
+    HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
+    countFlag++;
+    isTimPeriod = true;
   }
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart->Instance == USART1) {
-    //HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер и дальнейшие отправки запросов
-    isRxFullData = true;
+    isReceive = true;
   }
-}
-
-uint16_t CheckSum(uint8_t data[], int len) {
-  uint16_t checksum = 0;
-
-  for (int i = 2; i < len; i++) {
-    checksum += data[i];
-  }
-  checksum = ~checksum;
-  return SWAP_BYTES(checksum);
 }
 
 /* USER CODE END 4 */
