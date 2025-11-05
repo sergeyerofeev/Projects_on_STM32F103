@@ -1,23 +1,31 @@
 #ifndef INC_MY_CONFIG_H_
 #define INC_MY_CONFIG_H_
 
-// Константы для работы с пьезокерамическим излучателем
-u16 GL_BuzzerAllNotes[] = {
-	261, 277, 294, 311, 329, 349, 370, 392, 415, 440, 466, 494,
-	523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988,
-	1046, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661, 1760, 1865, 1976,
-	2093, 2217, 2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729, 3951,
-	4186, 4434, 4699, 4978, 5274, 5588, 5920, 6272, 6645, 7040, 7459, 7902};
+#include <stdint.h>
 
-#define OCTAVE_ONE_START_INDEX		(0)
-#define OCTAVE_TWO_START_INDEX		(OCTAVE_ONE_START_INDEX + 12)
-#define OCTAVE_THREE_START_INDEX	(OCTAVE_TWO_START_INDEX + 12)
-#define OCTAVE_FOUR_START_INDEX		(OCTAVE_THREE_START_INDEX + 12)
-#define OCTAVE_FIVE_START_INDEX		(OCTAVE_FOUR_START_INDEX + 12)
+// Переменные для работы с UART
+#define TX_BUFSIZE 10                 // Размер буфера для отправки данных
+#define STR_SIZE 20                   // Размер массива для строки с результатом
+#define RX_BUFSIZE 13                 // Максимальный размер буфера для приёма данных
 
-#define BUZZER_DEFAULT_FREQ			(4186) //C8 - 5th octave "Do"
-#define BUZZER_DEFAULT_DURATION		(20) //20ms
-#define BUZZER_VOLUME_MAX			(10)
-#define BUZZER_VOLUME_MUTE			(0)
+// ---------------------------------------------------------------------------------------
+
+// Структура данных для работы с BMS
+typedef struct  {
+  const uint8_t addr;                 // Адрес данных в BMS
+  const uint8_t rxBufSize;            // Размер буфера для приёма данных по UART RX
+  const uint8_t dataTx[TX_BUFSIZE];   // Массив данных для передачи по UART TX
+  char strRes[STR_SIZE];              // Итоговая строка с результатом
+} BmsData;
+
+// ---------------------------------------------------------------------------------------
+
+// Поиск названия вендора по коду
+typedef const struct {
+    uint32_t code;
+    char *name;
+} CodeMapping;
+
+const char* code_to_vendor(uint32_t code);
 
 #endif /* INC_MY_CONFIG_H_ */

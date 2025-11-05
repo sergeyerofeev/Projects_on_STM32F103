@@ -30,7 +30,7 @@
 #include <stdint.h>
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
-#include "addr_data.h"
+#include "my_config.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -51,6 +51,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+extern BmsData bmsData[];
+
 uint8_t addrCount = 0;    // Позиция в структуре адресов
 
 bool isTransmit = false;
@@ -61,11 +63,11 @@ bool isComplite = false;
 
 uint8_t countFlag = 0;
 char strCount[3] = { 0, };
-bool flag21 = false;
 
 bool isTimPeriod = false;
+
 // Размер буфера для приёма данных указываем максимального размера
-uint8_t rxData[13] = { 0, };
+uint8_t rxData[RX_BUFSIZE] = { 0, };
 
 // Первая позиция вывода символа на экран SSD1306
 uint8_t x = 0;
@@ -116,12 +118,10 @@ int main(void) {
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   ssd1306_Init();
-  ssd1306_Fill(Black);
+  // ssd1306_Fill(Black);
 
   __HAL_TIM_CLEAR_FLAG(&htim4, TIM_SR_UIF); // очищаем флаг
   HAL_TIM_Base_Start_IT(&htim4);
-
-  //HAL_UART_Receive_IT(&huart1, rxData, RX_BUFSIZE);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -133,11 +133,11 @@ int main(void) {
       strCount[0] = "0123456789ABCDEF"[countFlag >> 4 & 0x0F];
       strCount[1] = "0123456789ABCDEF"[countFlag & 0x0F];
       // Размещаем строку по центру экрана
-      x = (SSD1306_WIDTH - strlen(strCount) * Font_16x26.width) / 2;
-      y = SSD1306_HEIGHT / 2 - Font_16x26.height / 2;
+      x = (SSD1306_WIDTH - strlen(strCount) * Font_16x24.width) / 2;
+      y = SSD1306_HEIGHT / 2 - Font_16x24.height / 2;
       ssd1306_SetCursor(x, y);
       ssd1306_Fill(Black);
-      ssd1306_WriteString(strCount, Font_16x26, White);
+      ssd1306_WriteString(strCount, Font_16x24, White);
       ssd1306_UpdateScreen();
     }
 
@@ -191,8 +191,8 @@ int main(void) {
           break;
         case 0x60:
           // Вендор зашитый в BMS
-          uint32_t vendor = (rxData[7] << 24) | (rxData[8] << 16) | (rxData[9] << 8) | rxData[10];
-          snprintf(bmsData[addrCount].strRes, STR_SIZE, "%lX", vendor);
+          uint32_t code = (rxData[7] << 24) | (rxData[8] << 16) | (rxData[9] << 8) | rxData[10];
+          strcpy(bmsData[addrCount].strRes, code_to_vendor(code));
           break;
       }
       addrCount++;
