@@ -25,16 +25,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
-#include <stdint.h>
+#include "FreeRTOS.h"
+#include "task.h"
 #include "ssd1306.h"
 #include "my_config.h"
-/*
- #include "ssd1306.h"
- #include "ssd1306_fonts.h"
- */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,26 +49,12 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+extern TaskHandle_t dataShowHandle;
 // Массив структур
 extern BmsData bmsData[];
-/*// Позиция в структуре адресов запросов
- uint8_t addrCount = 0;
-
-
- // Флаг, устройство подключено и данные пришли
- bool isReceive = false;
-
- // Все данные с BMS получены
- bool isComplite = false;
-
- uint8_t countFlag = 0;
-
-
- bool isTimPeriod = false;*/
 
 // Размер буфера для приёма данных указываем максимального размера
 uint8_t rxData[RX_BUFSIZE] = { 0, };
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,10 +100,6 @@ int main(void) {
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  // Подаём притание на модуль I2C, низкий уровень сигнала включает PNP транзистор
-  HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_RESET);
-  HAL_Delay(1000);
-
   ssd1306_Init();
   HAL_UART_Receive_IT(&huart1, rxData, bmsData[0].rxBufSize);
   /* USER CODE END 2 */
@@ -140,96 +116,6 @@ int main(void) {
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
-    /*    if (isTimPeriod) {
-     isTimPeriod = false;
-     // Если данные от BMS не поступили выводим в центре экрана значение счётчика
-     strCount[0] = "0123456789ABCDEF"[countFlag >> 4 & 0x0F];
-     strCount[1] = "0123456789ABCDEF"[countFlag & 0x0F];
-     // Размещаем строку по центру экрана
-     x = (SSD1306_WIDTH - strlen(strCount) * Font_16x24.width) / 2;
-     y = SSD1306_HEIGHT / 2 - Font_16x24.height / 2;
-     ssd1306_SetCursor(x, y);
-     ssd1306_Fill(Black);
-     ssd1306_WriteString(strCount, Font_16x24, White);
-     ssd1306_UpdateScreen();
-     }
-
-     if (isReceive) {
-     isReceive = false;
-     // Получили данные от BMS
-     switch (bmsData[addrCount].addr) {
-     case 0x17:
-     // Версия прошивки BMS
-     uint16_t version = (rxData[8] << 8) | rxData[7];
-     if (version == 0) {
-     // Если число равно 0, выводим нулевую версию
-     strcpy(bmsData[addrCount].strRes, "v 0.0.0.0");
-     } else {
-     bmsData[addrCount].strRes[0] = 'v';
-     bmsData[addrCount].strRes[1] = ' ';
-
-     uint8_t j = 2; // Начальный индекс, с которого записываем символы в строковый массив
-     bool first = true;
-
-     for (int8_t i = 12; i >= 0; i -= 4) {
-     if ((version >> i == 0) && first) {
-     // Последовательно отбрасываем первые нули
-     continue;
-     } else {
-     first = false;
-     }
-     // Преобразуем шестнадцатиричное значение в символ
-     bmsData[addrCount].strRes[j++] = "0123456789ABCDEF"[(version) >> i & 0x0F];
-     bmsData[addrCount].strRes[j++] = '.';
-     }
-     // Вместо последней точки ставим символ конца строки
-     bmsData[addrCount].strRes[--j] = '\0';
-     }
-     break;
-
-     case 0x32:
-     // Текущее значение остаточной мощности, 0-100%
-     uint8_t power = rxData[7];
-     snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u %%", power);
-     break;
-     case 0x31:
-     // Текущая остаточная емкость, в mAh
-     uint16_t capacity = (rxData[8] << 8) | rxData[7];
-     snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u mAh", capacity);
-     break;
-     case 0x34:
-     // Текущее напряжение,  в V
-     int16_t voltage = (rxData[8] << 8) | rxData[7];
-     snprintf(bmsData[addrCount].strRes, STR_SIZE, "%d,%d V", voltage / 100, voltage % 100);
-     break;
-     case 0x60:
-     // Вендор зашитый в BMS
-     uint32_t code = (rxData[7] << 24) | (rxData[8] << 16) | (rxData[9] << 8) | rxData[10];
-     strcpy(bmsData[addrCount].strRes, code_to_vendor(code));
-     break;
-     }
-     addrCount++;
-     if (addrCount < 5) {
-     // Снова запускаем чтение данных
-     HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
-     HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
-     } else {
-     HAL_TIM_Base_Stop_IT(&htim4); // Останавливаем таймер
-     isComplite = true;
-     }
-     }
-
-     if (isComplite) {
-     isComplite = false;
-     ssd1306_Fill(Black);
-     // Выводим данные на экран
-     for (uint8_t i = 0, y = 2; i < 5; i++, y += 13) {
-     x = (SSD1306_WIDTH - strlen(bmsData[i].strRes) * Font_7x10.width) / 2;
-     ssd1306_SetCursor(x, y);
-     ssd1306_WriteString(bmsData[i].strRes, Font_7x10, White);
-     }
-     ssd1306_UpdateScreen();
-     }*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -273,21 +159,17 @@ void SystemClock_Config(void) {
 }
 
 /* USER CODE BEGIN 4 */
-/*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
- if (htim->Instance == TIM4) {
- // Прошёл интервал в 1 секунду, можем сделать запрос по UART
- HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
- countFlag++;
- isTimPeriod = true;
- }
- }*/
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+  if (huart->Instance == USART1) {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-/*void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
- if (huart->Instance == USART1) {
- isReceive = true;
- }
- }*/
+    // Отправляем уведомление задаче
+    vTaskNotifyGiveFromISR(dataShowHandle, &xHigherPriorityTaskWoken);
 
+    // Если задача taskBatMonitorHandle высокий приоритет, выполняем переключение контекста
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+  }
+}
 /* USER CODE END 4 */
 
 /**

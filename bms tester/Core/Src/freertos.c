@@ -25,11 +25,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
 #include "semphr.h"
-#include "i2c.h"
-#include "i2c_er.h"
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
 #include "my_config.h"
@@ -52,15 +51,22 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-SemaphoreHandle_t xBinarySemaphore;
-
 // Дескрипторы задач
 TaskHandle_t countShowHandle;
-TaskHandle_t checkBusyHandle;
+TaskHandle_t dataShowHandle;
 // Все ошибки складываем в одну переменную
 bool isError = false;
-// Ошибка на линии I2C
-extern bool isBusy;
+// Позиция в структуре адресов запросов
+size_t addrCount = 0;
+
+extern UART_HandleTypeDef huart1;
+// Массив структур
+extern BmsData bmsData[];
+// Количество элементов массива bmsData[]
+extern const size_t bmsDataCount;
+// Размер буфера для приёма данных указываем максимального размера
+extern uint8_t rxData[RX_BUFSIZE];
+
 // Счётчик для фонового вывода чисел на экран
 uint8_t countFlag = 0;
 char strCount[3] = { 0, };
@@ -70,16 +76,12 @@ uint8_t y = 0;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
+const osThreadAttr_t defaultTask_attributes = { .name = "defaultTask", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityNormal, };
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 void vCountShow(void *argument);
-void vCheckBusy(void*);
+void vDataShow(void *argument);
 void vTaskSystemReset(void *argument);
 /* USER CODE END FunctionPrototypes */
 
@@ -98,10 +100,10 @@ __weak void PostSleepProcessing(uint32_t *ulExpectedIdleTime) {
 /* USER CODE END PREPOSTSLEEP */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
@@ -112,11 +114,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  xBinarySemaphore = xSemaphoreCreateBinary();
-  if (xBinarySemaphore == NULL) {
-    // Ошибка создания семафора
-    isError = true;
-  }
+  /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -135,7 +133,7 @@ void MX_FREERTOS_Init(void) {
   if (xTaskCreate(vCountShow, NULL, 128, NULL, osPriorityNormal, &countShowHandle) == pdFAIL) {
     isError = true;
   }
-  if (xTaskCreate(vCheckBusy, "checkBusy", 128, NULL, osPriorityNormal1, &checkBusyHandle) == pdFAIL) {
+  if (xTaskCreate(vDataShow, NULL, 128, NULL, osPriorityNormal, &dataShowHandle) == pdFAIL) {
     isError = true;
   }
   if (xTaskCreate(vTaskSystemReset, "taskSystemReset", 128, NULL, osPriorityHigh, NULL) == pdFAIL) {
@@ -156,8 +154,7 @@ void MX_FREERTOS_Init(void) {
  * @retval None
  */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
+void StartDefaultTask(void *argument) {
   /* USER CODE BEGIN StartDefaultTask */
   /* Infinite loop */
   for (;;) {
@@ -178,63 +175,103 @@ void vCountShow(void *argument) {
     // Размещаем строку по центру экрана
     x = (SSD1306_WIDTH - strlen(strCount) * Font_16x24.width) / 2;
     y = SSD1306_HEIGHT / 2 - Font_16x24.height / 2;
-    for (;;) {
-      ssd1306_SetCursor(x, y);
-      ssd1306_Fill(Black);
-      ssd1306_WriteString(strCount, Font_16x24, White);
-      ssd1306_UpdateScreen();
-      if (isBusy) {
-        isBusy = false;
-        // Ошибка при доступе к модулю I2C
-        // Повышаем приоритет задачи, чтобы снова первой запуститься после решения проблемы
-        vTaskPrioritySet(NULL, osPriorityNormal1);
-        // Отправляем уведомление
-        xTaskNotify(vCheckBusy, (uint32_t ) countShowHandle, eSetValueWithOverwrite);
-        // Переводим задачу в режим ожидания
-        vTaskSuspend(NULL);
-
-        // После возврата снова попытаемся получить значение по сохранённому адресу
-        // Понижаем приоритет текущей задачи до обычного
-        vTaskPrioritySet(NULL, osPriorityNormal);
-      } else {
-        break;
-      }
-    }
+    ssd1306_SetCursor(x, y);
+    ssd1306_Fill(Black);
+    ssd1306_WriteString(strCount, Font_16x24, White);
+    ssd1306_UpdateScreen();
     countFlag++;
+
+    // Прошёл интервал в 1 секунду, можем сделать запрос по UART
+    HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
 
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
 
-void vCheckBusy(void *argument) {
+// Как только данные получены, выводим их на экран
+void vDataShow(void *argument) {
   for (;;) {
-    uint32_t handleValue = 0;
-    xTaskNotifyWait(0, 0, &handleValue, portMAX_DELAY);
-    // Отключаем питание модуля I2C, высокий уровень сигнала отключает PNP транзистор
-    HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_SET);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    for (;;) {
-      // HAL_IWDG_Refresh(&hiwdg); // Сбрасываем IWDG
-      // Подаём питание на модуль I2C, низкий уровень сигнала включает PNP транзистор
-      HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_RESET);
-      vTaskDelay(pdMS_TO_TICKS(1000));
-      // Проверям готовность, 5 попыток, таймаут 100 мс
-      if (true/*HAL_I2C_IsDeviceReady(&hi2c1, ADDRESS, 5, 100) == HAL_OK*/) {
-        // Модуль I2C успешно перезапустился, выходим из внутреннего цикла
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    // Получили данные от BMS
+    switch (bmsData[addrCount].addr) {
+      case 0x17:
+        // Версия прошивки BMS
+        uint16_t version = (rxData[8] << 8) | rxData[7];
+        if (version == 0) {
+          // Если число равно 0, выводим нулевую версию
+          strcpy(bmsData[addrCount].strRes, "v 0.0.0.0");
+        } else {
+          bmsData[addrCount].strRes[0] = 'v';
+          bmsData[addrCount].strRes[1] = ' ';
+
+          uint8_t j = 2; // Начальный индекс, с которого записываем символы в строковый массив
+          bool first = true;
+
+          for (int8_t i = 12; i >= 0; i -= 4) {
+            if ((version >> i == 0) && first) {
+              // Последовательно отбрасываем первые нули
+              continue;
+            } else {
+              first = false;
+            }
+            // Преобразуем шестнадцатиричное значение в символ
+            bmsData[addrCount].strRes[j++] = "0123456789ABCDEF"[(version) >> i & 0x0F];
+            bmsData[addrCount].strRes[j++] = '.';
+          }
+          // Вместо последней точки ставим символ конца строки
+          bmsData[addrCount].strRes[--j] = '\0';
+        }
         break;
-      } else {
-        // Если возвращаемое значение не равно HAL_OK
-        // Отключаем питание модуля I2C
-        HAL_GPIO_WritePin(EE_GPIO_Port, EE_Pin, GPIO_PIN_SET);
-        // Запускаем процедуру переиницализации I2C1
-        I2C_ClearBusyFlagErratum(&hi2c1, 100);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-      }
+
+      case 0x32:
+        // Текущее значение остаточной мощности, 0-100%
+        uint8_t power = rxData[7];
+        snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u %%", power);
+        break;
+      case 0x31:
+        // Текущая остаточная емкость, в mAh
+        uint16_t capacity = (rxData[8] << 8) | rxData[7];
+        snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u mAh", capacity);
+        break;
+      case 0x34:
+        // Текущее напряжение,  в V
+        int16_t voltage = (rxData[8] << 8) | rxData[7];
+        snprintf(bmsData[addrCount].strRes, STR_SIZE, "%d,%d V", voltage / 100, voltage % 100);
+        break;
+      case 0x60:
+        // Вендор зашитый в BMS
+        uint32_t code = (rxData[7] << 24) | (rxData[8] << 16) | (rxData[9] << 8) | rxData[10];
+        strcpy(bmsData[addrCount].strRes, code_to_vendor(code));
+        break;
     }
-    // HAL_IWDG_Refresh(&hiwdg); // Сбрасываем IWDG
-    // Модуль I2C успешно перезапустился
-    // Возвращаем вызвавшую задачу из режима ожидания
-    vTaskResume((TaskHandle_t) handleValue);
+    addrCount++;
+    if (addrCount < bmsDataCount) {
+      // Снова запускаем чтение данных
+      HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
+      HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
+    } else {
+      // Удаляем задачу вывода значения счётчика
+      vTaskDelete(countShowHandle);
+      // Выводим на экран все данные полученные от bms
+      ssd1306_Fill(Black);
+
+      for (uint8_t i = 0, y = 2; i < 5; i++, y += 13) {
+        x = (SSD1306_WIDTH - strlen(bmsData[i].strRes) * Font_7x10.width) / 2;
+        ssd1306_SetCursor(x, y);
+        ssd1306_WriteString(bmsData[i].strRes, Font_7x10, White);
+      }
+      ssd1306_UpdateScreen();
+
+      // Отключаем ВСЕ прерывания UART
+      __HAL_UART_DISABLE_IT(&huart1, UART_IT_RXNE);  // Приемный буфер не пуст
+      __HAL_UART_DISABLE_IT(&huart1, UART_IT_TXE);   // Буфер передачи пуст
+      __HAL_UART_DISABLE_IT(&huart1, UART_IT_TC);    // Передача завершена
+      __HAL_UART_DISABLE_IT(&huart1, UART_IT_IDLE);  // Линия в состоянии IDLE
+      __HAL_UART_DISABLE_IT(&huart1, UART_IT_PE);    // Ошибка четности
+      __HAL_UART_DISABLE_IT(&huart1, UART_IT_ERR);   // Ошибка (FE, OE, NE)
+      __HAL_UART_DISABLE_IT(&huart1, UART_IT_CTS);   // CTS изменение
+      __HAL_UART_DISABLE_IT(&huart1, UART_IT_LBD);   // Break обнаружение
+    }
   }
 }
 
@@ -242,8 +279,14 @@ void vCheckBusy(void *argument) {
 void vTaskSystemReset(void *argument) {
   for (;;) {
     if (isError) {
-      __set_FAULTMASK(1); // Запрещаем все маскируемые прерывания
-      NVIC_SystemReset(); // Программный сброс
+      // Запрещаем все маскируемые прерывания
+      __disable_irq();
+      __set_FAULTMASK(1);
+      // Короткая задержка для стабилизации
+      for (volatile int i = 0; i < 1000; i++)
+        __NOP();
+      // Выполняем сброс
+      NVIC_SystemReset();
     } else {
       // Если ошибок нет, удаляем текущую задачу
       vTaskDelete(NULL);
