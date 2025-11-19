@@ -2,18 +2,10 @@
 
 extern UART_HandleTypeDef UART1;
 
-/////////////////// USART /////////////////////
 volatile uint16_t rx1_buffer_head = 0;
 volatile uint16_t rx1_buffer_tail = 0;
-uint8_t rx1_buffer[UART1_RX_BUFFER_SIZE] = { 0, };
 
-void clear_uart1_buff()
-{
-  __HAL_UART_DISABLE_IT(&UART1, UART_IT_RXNE);
-  rx1_buffer_head = 0;
-  rx1_buffer_tail = 0;
-  __HAL_UART_ENABLE_IT(&UART1, UART_IT_RXNE);
-}
+uint8_t rx1_buffer[UART1_RX_BUFFER_SIZE] = { 0, };
 
 uint16_t uart1_available(void)
 {
