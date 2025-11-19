@@ -35,7 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SIZE_BF 64
+#define SIZE_BF 128
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,7 +46,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+char strRx[SIZE_BF] = { 'R', 'x', ':', ' ' };
+char strTx[SIZE_BF] = { 'T', 'x', ':', ' ' };
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -61,11 +62,10 @@ void SystemClock_Config(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
 
   /* USER CODE BEGIN 1 */
 
@@ -101,43 +101,52 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1) {
     if (uart1_available()) {
-      char str_uart1[SIZE_BF] = { 'R', 'x', ':' };
-      uint8_t i = 3;
-
+      size_t i = 4;
+      uint8_t dataUart1 = 0;
       while (uart1_available()) {
-        str_uart1[i++] = uart1_read(); // читаем байт
+        dataUart1 = uart1_read(); // Читаем пришедший байт
+        // Преобразуем шестнадцатиричное число в два символа
+        strRx[i++] = "0123456789ABCDEF"[dataUart1 >> 4 & 0x0F];
+        strRx[i++] = "0123456789ABCDEF"[dataUart1 & 0x0F];
+        strRx[i++] = ' ';
 
-        if (i == SIZE_BF - 1) {
-          str_uart1[i] = '\0';
+        if (i >= SIZE_BF - 4) {
+          // Проверяем возможность вставить следующие четыре символа
+          strRx[i] = '\0';
           break;
         }
 
         HAL_Delay(10);
       }
-      str_uart1[i++] = '\n';
-      str_uart1[i] = '\0';
+      strRx[i++] = '\n';
+      strRx[i] = '\0';
 
-      HAL_UART_Transmit(&huart2, (uint8_t*) str_uart1, strlen(str_uart1), 100); // отправляем обратно что получили
+      // Передаём полученные данные на Terminal
+      HAL_UART_Transmit(&huart2, (uint8_t*) strRx, strlen(strRx), 100);
     }
 
     if (uart3_available()) {
-      char str_uart3[SIZE_BF] = { 'T', 'x', ':' };
-      uint8_t i = 3;
-
+      size_t j = 4;
+      uint8_t dataUart3 = 0;
       while (uart3_available()) {
-        str_uart3[i++] = uart3_read(); // читаем байт
+        dataUart3 = uart3_read(); // Читаем пришедший байт
+        // Преобразуем шестнадцатиричное число в два символа
+        strTx[j++] = "0123456789ABCDEF"[dataUart3 >> 4 & 0x0F];
+        strTx[j++] = "0123456789ABCDEF"[dataUart3 & 0x0F];
+        strTx[j++] = ' ';
 
-        if (i == SIZE_BF - 1) {
-          str_uart3[i] = '\0';
+        if (j >= SIZE_BF - 4) {
+          // Проверяем возможность вставить следующие четыре символа
+          strTx[j] = '\0';
           break;
         }
 
         HAL_Delay(10);
       }
-      str_uart3[i++] = '\n';
-      str_uart3[i] = '\0';
-
-      HAL_UART_Transmit(&huart2, (uint8_t*) str_uart3, strlen(str_uart3), 100); // отправляем обратно что получили
+      strTx[j++] = '\n';
+      strTx[j] = '\0';
+      // Передаём полученные данные на Terminal
+      HAL_UART_Transmit(&huart2, (uint8_t*) strTx, strlen(strTx), 100);
     }
 
     /* USER CODE END WHILE */
@@ -148,17 +157,16 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
+  RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -166,22 +174,19 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
-  {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -191,11 +196,10 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
+void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
