@@ -25,7 +25,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <string.h>
 #include "usart1_ring.h"
 #include "usart3_ring.h"
 /* USER CODE END Includes */
@@ -113,55 +112,6 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
-    if (uart1_available()) {
-      size_t i = 4;
-      uint8_t dataUart1 = 0;
-      while (uart1_available()) {
-        dataUart1 = uart1_read(); // Читаем пришедший байт
-        // Преобразуем шестнадцатиричное число в два символа
-        strRx[i++] = "0123456789ABCDEF"[dataUart1 >> 4 & 0x0F];
-        strRx[i++] = "0123456789ABCDEF"[dataUart1 & 0x0F];
-        strRx[i++] = ' ';
-
-        if (i >= SIZE_BF - 4) {
-          // Проверяем возможность вставить следующие четыре символа
-          strRx[i] = '\0';
-          break;
-        }
-
-        HAL_Delay(10);
-      }
-      strRx[i++] = '\n';
-      strRx[i] = '\0';
-
-      // Передаём полученные данные на Terminal
-      HAL_UART_Transmit(&huart2, (uint8_t*) strRx, strlen(strRx), 100);
-    }
-
-    if (uart3_available()) {
-      size_t j = 4;
-      uint8_t dataUart3 = 0;
-      while (uart3_available()) {
-        dataUart3 = uart3_read(); // Читаем пришедший байт
-        // Преобразуем шестнадцатиричное число в два символа
-        strTx[j++] = "0123456789ABCDEF"[dataUart3 >> 4 & 0x0F];
-        strTx[j++] = "0123456789ABCDEF"[dataUart3 & 0x0F];
-        strTx[j++] = ' ';
-
-        if (j >= SIZE_BF - 4) {
-          // Проверяем возможность вставить следующие четыре символа
-          strTx[j] = '\0';
-          break;
-        }
-
-        HAL_Delay(10);
-      }
-      strTx[j++] = '\n';
-      strTx[j] = '\0';
-      // Передаём полученные данные на Terminal
-      HAL_UART_Transmit(&huart2, (uint8_t*) strTx, strlen(strTx), 100);
-    }
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
