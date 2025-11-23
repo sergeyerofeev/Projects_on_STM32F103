@@ -25,17 +25,28 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include "semphr.h"
+#include "usart1_ring.h"
+#include "usart3_ring.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef struct {
+  size_t xDataLength; // Количество записанных данных
+  size_t xBlockSize;  // Полный размер массива
+  uint8_t uData[];   // Массив для данных
+} MemBlock_t;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+// Первоначальный размер массива для передачи по TX и количество добавляемых байт
+#define INITIAL_BLOCK_SIZE 64
+// Длина начальное строки для идентификации линии
+#define INITIAL_LENGTH 3
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,14 +59,15 @@
 // Дескрипторы задач
 TaskHandle_t uart1RxHandle;
 TaskHandle_t uart3RxHandle;
-
+TaskHandle_t uart2TxHandle;
+// Очередь для передачи данных между задачами
+QueueHandle_t xUartQueue;
+// Семафор для синхронизации передачи DMA Uart2 TX
 SemaphoreHandle_t txCompleted;
 
-// Все ошибки складываем в одну переменную
-bool isError = false;
-
-char strRx[SIZE_BF] = { 'R', 'x', ':', ' ' };
-char strTx[SIZE_BF] = { 'T', 'x', ':', ' ' };
+extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart3;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -63,7 +75,11 @@ const osThreadAttr_t defaultTask_attributes = { .name = "defaultTask", .stack_si
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-
+void vTaskUart1Rx(void *argument);
+void vTaskUart3Rx(void *argument);
+void vTaskUart2Tx(void *argument);
+// Обработчик ошибок
+void vErrorHandler(void);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -95,10 +111,9 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-
   txCompleted = xSemaphoreCreateBinary();
   if (txCompleted == NULL) {
-    isError = true;
+    vErrorHandler();
   }
   // Сразу освобождаем семафор
   xSemaphoreGive(txCompleted);
@@ -109,7 +124,8 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
+  // Создание очереди (хранит указатели на MemBlock_t)
+  xUartQueue = xQueueCreate(10, sizeof(MemBlock_t*));
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -117,14 +133,16 @@ void MX_FREERTOS_Init(void) {
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  xTaskCreate(vTaskSystemReset, "taskSystemReset", 128, NULL, osPriorityHigh, NULL);
-
   if (xTaskCreate(vTaskUart1Rx, "taskUart1Rx", 128, NULL, osPriorityNormal, &uart1RxHandle) == pdFAIL) {
-    isError = true;
+    vErrorHandler();
   }
 
   if (xTaskCreate(vTaskUart3Rx, "taskUart3Rx", 128, NULL, osPriorityNormal, &uart3RxHandle) == pdFAIL) {
-    isError = true;
+    vErrorHandler();
+  }
+
+  if (xTaskCreate(vTaskUart2Tx, "taskUart2Tx", 128, NULL, osPriorityNormal, &uart2TxHandle) == pdFAIL) {
+    vErrorHandler();
   }
   /* USER CODE END RTOS_THREADS */
 
@@ -155,57 +173,102 @@ void StartDefaultTask(void *argument) {
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-  if(huart->Instance == USART2)
-  {
-      xSemaphoreGiveFromISR(txCompleted, &xHigherPriorityTaskWoken);
+  if (huart->Instance == USART2) {
+    xSemaphoreGiveFromISR(txCompleted, &xHigherPriorityTaskWoken);
   }
 
   // Единая точка yield для всех условий
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-void vTaskSystemReset(void *argument) {
+void vErrorHandler() {
+  __set_FAULTMASK(1); // Запрещаем все маскируемые прерывания
+  NVIC_SystemReset(); // Программный сброс
+}
+
+void vTaskUart1Rx(void *argement) {
+  uint8_t dataUart1 = 0;
+  MemBlock_t *pxMemBlock = NULL;
+
   for (;;) {
-    if (isError) {
-      __set_FAULTMASK(1); // Запрещаем все маскируемые прерывания
-      NVIC_SystemReset(); // Программный сброс
+    vTaskDelay(pdMS_TO_TICKS(8));
+    if (pxMemBlock == NULL) {
+      // Инициализация начального блока памяти
+      pxMemBlock = (MemBlock_t*) pvPortMalloc(sizeof(MemBlock_t) + INITIAL_BLOCK_SIZE);
+      if (pxMemBlock == NULL) {
+        vErrorHandler();
+      }
+      pxMemBlock->xBlockSize = INITIAL_BLOCK_SIZE;
+      // Записываем начальные символы инициализирующие линию
+      memcpy(pxMemBlock->uData, (uint8_t[] ) { 'R', 'x', ':' }, INITIAL_LENGTH);
+      pxMemBlock->xDataLength = INITIAL_LENGTH;
+    }
+    if (uart1_available()) {
+      while (uart1_available()) {
+        dataUart1 = uart1_read(); // Читаем пришедший байт
+
+        // Проверяем необходимость расширения памяти
+        if (pxMemBlock->xDataLength + INITIAL_LENGTH >= pxMemBlock->xBlockSize) {
+          // Увеличиваем размер массива в новом блоке на INITIAL_BLOCK_SIZE байт
+          MemBlock_t *pxNewBlock = (MemBlock_t*) pvPortMalloc(sizeof(MemBlock_t) + INITIAL_BLOCK_SIZE);
+          if (pxNewBlock == NULL) {
+            vErrorHandler();
+          }
+          // Копирование данных в новый блок
+          memcpy(pxNewBlock->uData, pxMemBlock->uData, pxMemBlock->xDataLength);
+          pxNewBlock->xDataLength = pxMemBlock->xDataLength;
+          pxNewBlock->xBlockSize = pxMemBlock->xBlockSize + INITIAL_BLOCK_SIZE;
+
+          // Освобождение старого блока и замена на новый
+          vPortFree(pxMemBlock);
+
+          pxMemBlock = pxNewBlock;
+        }
+        // Преобразуем шестнадцатиричное число в два символа
+        pxMemBlock->uData[pxMemBlock->xDataLength++] = ' ';
+        pxMemBlock->uData[pxMemBlock->xDataLength++] = "0123456789ABCDEF"[dataUart1 >> 4 & 0x0F];
+        pxMemBlock->uData[pxMemBlock->xDataLength++] = "0123456789ABCDEF"[dataUart1 & 0x0F];
+      }
     } else {
-      // Если ошибок нет, удаляем текущую задачу
-      vTaskDelete(NULL);
+      if (pxMemBlock->xDataLength > INITIAL_LENGTH) {
+        // Данные полностью скопированы, отправляем блок в очередь задач
+        if (xQueueSend(xUartQueue, &pxMemBlock, portMAX_DELAY) != pdPASS) {
+          // Если не удалось отправить в очередь, освобождаем память
+          vPortFree(pxMemBlock);
+          pxMemBlock = NULL;
+        }
+      }
     }
   }
 }
 
-void vTaskUart1Rx(void *argement) {
-  size_t i = 4;
-  uint8_t dataUart1 = 0;
+void vTaskUart3Rx(void *argement) {
   for (;;) {
-    vTaskDelay(pdMS_TO_TICKS(8));
-    if (uart1_available()) {
-      while (uart1_available()) {
-        dataUart1 = uart1_read(); // Читаем пришедший байт
-        // Преобразуем шестнадцатиричное число в два символа
-        strRx[i++] = "0123456789ABCDEF"[dataUart1 >> 4 & 0x0F];
-        strRx[i++] = "0123456789ABCDEF"[dataUart1 & 0x0F];
-        strRx[i++] = ' ';
+    vTaskSuspend(NULL);
+  }
+}
 
-        if (i >= SIZE_BF - 4) {
-          // Проверяем возможность вставить следующие четыре символа
-          strRx[i] = '\0';
-          // Приёмный буфер переполнен, приводим счётчик в исходное состояние
-          i = 4;
-          break;
+void vTaskUart2Tx(void *argement) {
+  MemBlock_t *pxMemBlock = NULL;
+
+  for (;;) {
+// Ожидание данных из очереди
+    if (xQueueReceive(xUartQueue, &pxMemBlock, portMAX_DELAY) == pdPASS) {
+      if (pxMemBlock != NULL && pxMemBlock->xDataLength > 0) {
+        // Ожидание семафора от предыдущей передачи
+        if (xSemaphoreTake(txCompleted, portMAX_DELAY) == pdTRUE) {
+          // Запуск передачи через DMA
+          if (HAL_UART_Transmit_DMA(&huart2, pxMemBlock->uData, pxMemBlock->xDataLength) == HAL_OK) {
+            // Ожидание семафора от текущей передачи
+            if (xSemaphoreTake(txCompleted, portMAX_DELAY) == pdTRUE) {
+              // Данные успешно переданы, даём семафор
+              xSemaphoreGive(txCompleted);
+            }
+          }
         }
-      }
-      continue;
-    } else {
-      if (i > 4) {
-        strRx[i++] = '\n';
-        strRx[i] = '\0';
-        // Данные полностью скопированы, приводим счётчик в исходное состояние
-        i = 4;
-        // Передаём полученные данные на Terminal
-        HAL_UART_Transmit(&huart2, (uint8_t*) strRx, strlen(strRx), 100);
+        // Освобождаем память
+        vPortFree(pxMemBlock);
+        pxMemBlock = NULL;
       }
     }
   }
