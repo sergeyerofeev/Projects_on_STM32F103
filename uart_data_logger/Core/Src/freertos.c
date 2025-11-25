@@ -38,14 +38,13 @@ typedef struct {
   size_t xBlockSize;  // Полный размер массива
   uint8_t uData[];   // Массив для данных
 } MemBlock_t;
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 // Первоначальный размер массива для передачи по TX и количество добавляемых байт
 #define INITIAL_BLOCK_SIZE 64
-// Длина начальное строки для идентификации линии
+// Длина начальной строки для идентификации линии + символ '\n'
 #define INITIAL_LENGTH 3
 /* USER CODE END PD */
 
@@ -68,6 +67,7 @@ SemaphoreHandle_t txCompleted;
 extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart2;
 extern UART_HandleTypeDef huart3;
+
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -115,8 +115,7 @@ void MX_FREERTOS_Init(void) {
   if (txCompleted == NULL) {
     vErrorHandler();
   }
-  // Сразу освобождаем семафор
-  xSemaphoreGive(txCompleted);
+  // Сейчас семафор заблокирован, освобождение произойдёт в прерывании Uart2
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -126,6 +125,9 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_QUEUES */
   // Создание очереди (хранит указатели на MemBlock_t)
   xUartQueue = xQueueCreate(10, sizeof(MemBlock_t*));
+  if (xUartQueue == NULL) {
+    vErrorHandler();
+  }
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -191,7 +193,7 @@ void vTaskUart1Rx(void *argement) {
   MemBlock_t *pxMemBlock = NULL;
 
   for (;;) {
-    vTaskDelay(pdMS_TO_TICKS(8));
+    vTaskDelay(pdMS_TO_TICKS(6));
     if (pxMemBlock == NULL) {
       // Инициализация начального блока памяти
       pxMemBlock = (MemBlock_t*) pvPortMalloc(sizeof(MemBlock_t) + INITIAL_BLOCK_SIZE);
@@ -208,7 +210,7 @@ void vTaskUart1Rx(void *argement) {
         dataUart1 = uart1_read(); // Читаем пришедший байт
 
         // Проверяем необходимость расширения памяти
-        if (pxMemBlock->xDataLength + INITIAL_LENGTH >= pxMemBlock->xBlockSize) {
+        if (pxMemBlock->xDataLength + INITIAL_LENGTH + 1 >= pxMemBlock->xBlockSize) {
           // Увеличиваем размер массива в новом блоке на INITIAL_BLOCK_SIZE байт
           MemBlock_t *pxNewBlock = (MemBlock_t*) pvPortMalloc(sizeof(MemBlock_t) + INITIAL_BLOCK_SIZE);
           if (pxNewBlock == NULL) {
@@ -231,8 +233,14 @@ void vTaskUart1Rx(void *argement) {
       }
     } else {
       if (pxMemBlock->xDataLength > INITIAL_LENGTH) {
-        // Данные полностью скопированы, отправляем блок в очередь задач
-        if (xQueueSend(xUartQueue, &pxMemBlock, portMAX_DELAY) != pdPASS) {
+        // Данные полностью скопированы, добавляем перевод строки
+        pxMemBlock->uData[pxMemBlock->xDataLength++] = '\n';
+        // Записываем указатель на структуру в очередь задач
+        if (xQueueSend(xUartQueue, &pxMemBlock, portMAX_DELAY) == pdPASS) {
+          // Ссылка на данные успешно отправлена в очередь, указатель больше не нужен
+          pxMemBlock = NULL;
+          // Память будет освобождена в задаче taskUart2Tx
+        } else {
           // Если не удалось отправить в очередь, освобождаем память
           vPortFree(pxMemBlock);
           pxMemBlock = NULL;
@@ -244,7 +252,65 @@ void vTaskUart1Rx(void *argement) {
 
 void vTaskUart3Rx(void *argement) {
   for (;;) {
-    vTaskSuspend(NULL);
+    uint8_t dataUart3 = 0;
+    MemBlock_t *pxMemBlock = NULL;
+
+    for (;;) {
+      vTaskDelay(pdMS_TO_TICKS(5));
+      if (pxMemBlock == NULL) {
+        // Инициализация начального блока памяти
+        pxMemBlock = (MemBlock_t*) pvPortMalloc(sizeof(MemBlock_t) + INITIAL_BLOCK_SIZE);
+        if (pxMemBlock == NULL) {
+          vErrorHandler();
+        }
+        pxMemBlock->xBlockSize = INITIAL_BLOCK_SIZE;
+        // Записываем начальные символы инициализирующие линию
+        memcpy(pxMemBlock->uData, (uint8_t[] ) { 'T', 'x', ':' }, INITIAL_LENGTH);
+        pxMemBlock->xDataLength = INITIAL_LENGTH;
+      }
+      if (uart3_available()) {
+        while (uart3_available()) {
+          dataUart3 = uart3_read(); // Читаем пришедший байт
+
+          // Проверяем необходимость расширения памяти
+          if (pxMemBlock->xDataLength + INITIAL_LENGTH + 1 >= pxMemBlock->xBlockSize) {
+            // Увеличиваем размер массива в новом блоке на INITIAL_BLOCK_SIZE байт
+            MemBlock_t *pxNewBlock = (MemBlock_t*) pvPortMalloc(sizeof(MemBlock_t) + INITIAL_BLOCK_SIZE);
+            if (pxNewBlock == NULL) {
+              vErrorHandler();
+            }
+            // Копирование данных в новый блок
+            memcpy(pxNewBlock->uData, pxMemBlock->uData, pxMemBlock->xDataLength);
+            pxNewBlock->xDataLength = pxMemBlock->xDataLength;
+            pxNewBlock->xBlockSize = pxMemBlock->xBlockSize + INITIAL_BLOCK_SIZE;
+
+            // Освобождение старого блока и замена на новый
+            vPortFree(pxMemBlock);
+
+            pxMemBlock = pxNewBlock;
+          }
+          // Преобразуем шестнадцатиричное число в два символа
+          pxMemBlock->uData[pxMemBlock->xDataLength++] = ' ';
+          pxMemBlock->uData[pxMemBlock->xDataLength++] = "0123456789ABCDEF"[dataUart3 >> 4 & 0x0F];
+          pxMemBlock->uData[pxMemBlock->xDataLength++] = "0123456789ABCDEF"[dataUart3 & 0x0F];
+        }
+      } else {
+        if (pxMemBlock->xDataLength > INITIAL_LENGTH) {
+          // Данные полностью скопированы, добавляем перевод строки
+          pxMemBlock->uData[pxMemBlock->xDataLength++] = '\n';
+          // Записываем указатель на структуру в очередь задач
+          if (xQueueSend(xUartQueue, &pxMemBlock, portMAX_DELAY) == pdPASS) {
+            // Ссылка на данные успешно отправлена в очередь, указатель больше не нужен
+            pxMemBlock = NULL;
+            // Память будет освобождена в задаче taskUart2Tx
+          } else {
+            // Если не удалось отправить в очередь, освобождаем память
+            vPortFree(pxMemBlock);
+            pxMemBlock = NULL;
+          }
+        }
+      }
+    }
   }
 }
 
@@ -252,23 +318,23 @@ void vTaskUart2Tx(void *argement) {
   MemBlock_t *pxMemBlock = NULL;
 
   for (;;) {
-// Ожидание данных из очереди
+    // Ожидание данных из очереди
     if (xQueueReceive(xUartQueue, &pxMemBlock, portMAX_DELAY) == pdPASS) {
-      if (pxMemBlock != NULL && pxMemBlock->xDataLength > 0) {
-        // Ожидание семафора от предыдущей передачи
-        if (xSemaphoreTake(txCompleted, portMAX_DELAY) == pdTRUE) {
-          // Запуск передачи через DMA
-          if (HAL_UART_Transmit_DMA(&huart2, pxMemBlock->uData, pxMemBlock->xDataLength) == HAL_OK) {
-            // Ожидание семафора от текущей передачи
-            if (xSemaphoreTake(txCompleted, portMAX_DELAY) == pdTRUE) {
-              // Данные успешно переданы, даём семафор
-              xSemaphoreGive(txCompleted);
-            }
+      // Извлекаем из очереди указатель на указатель на динамически выделенную память
+      if (pxMemBlock != NULL && pxMemBlock->xDataLength > INITIAL_LENGTH) {
+        // Запуск передачи через DMA
+        if (HAL_UART_Transmit_DMA(&huart2, pxMemBlock->uData, pxMemBlock->xDataLength) == HAL_OK) {
+          // Ожидание семафора от колбэка (передача завершена)
+          if (xSemaphoreTake(txCompleted, portMAX_DELAY) == pdTRUE) {
+            // Данные успешно переданы, освобождаем память и обнуляем указатель
+            vPortFree(pxMemBlock);
+            pxMemBlock = NULL;
           }
+        } else {
+          // Ошибка DMA - освобождаем память и обнуляем указатель
+          vPortFree(pxMemBlock);
+          pxMemBlock = NULL;
         }
-        // Освобождаем память
-        vPortFree(pxMemBlock);
-        pxMemBlock = NULL;
       }
     }
   }
