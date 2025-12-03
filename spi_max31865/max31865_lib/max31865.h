@@ -30,10 +30,9 @@
 
 /* MAX31865 Структура данных */
 typedef struct {
+  SPI_HandleTypeDef *spi;          // SPI handle
   GPIO_TypeDef *cs_gpio;           // GPIO port for Chip Select
   uint16_t cs_pin;                 // GPIO pin for Chip Select
-  SPI_HandleTypeDef *spi;          // SPI handle
-  uint8_t num_wires;
 } MAX31865_t;
 
 /* Прототипы функций */
