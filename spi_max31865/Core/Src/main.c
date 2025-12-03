@@ -48,9 +48,7 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 
-MAX31865_t pt100 = { .spi = &hspi1, .cs_gpio = CS_GPIO_Port, .cs_pin = CS_Pin, .num_wires = MAX31865_2_WIRE, .filter_hz = MAX31865_SAMPLE_50HZ };
-
-float pt100Temp;
+MAX31865_t pt100 = { .spi = &hspi1, .cs_gpio = CS_GPIO_Port, .cs_pin = CS_Pin, .num_wires = MAX31865_2_WIRE };
 
 char str[20] = { 0, };
 uint8_t x = 0;
@@ -107,13 +105,13 @@ int main(void) {
   ssd1306_Init();
   ssd1306_Fill(Black);
 
-  Max31865_Init(&pt100);
+  Max31865_Init(&pt100, MAX31865_2_WIRE);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
-    Max31865_ReadTempC(&pt100, &pt100Temp);
+    float pt100Temp = Max31865_ReadTempC(&pt100);
 
     // Преобразуем полученную температуру в строку
     int length = floatToString(str, sizeof(str), pt100Temp);
