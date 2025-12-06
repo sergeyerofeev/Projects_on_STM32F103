@@ -37,6 +37,6 @@ typedef struct {
 
 /* Прототипы функций */
 void Max31865_Init(MAX31865_t *max, int wire);
-float Max31865_ReadTempC(MAX31865_t *max31865);
+float Max31865_ReadTempC(MAX31865_t *max31865, float *res);
 
 #endif /* MAX31865_H */

@@ -84,7 +84,7 @@ void Max31865_Init(MAX31865_t *max, int wire) {
 }
 
 /* Преобразование значения АЦП в температуру */
-float Max31865_ReadTempC(MAX31865_t *max) {
+float Max31865_ReadTempC(MAX31865_t *max, float *res) {
   static const float Z1 = -RTD_A;
   static const float Z2 = RTD_A * RTD_A - 4.0f * RTD_B;
   static const float Z3 = 4.0f * RTD_B / MAX31865_RNOMINAL;
@@ -92,6 +92,9 @@ float Max31865_ReadTempC(MAX31865_t *max) {
   static const float RTD_CONV_FACTOR = MAX31865_RREF / 32768.0f;
 
   float Rt = (float) Max31865_readRTD(max) * RTD_CONV_FACTOR;
+
+  // Получаем текущее сопротивление
+  *res = Rt;
 
   float temp = Z2 + (Z3 * Rt);
   temp = (sqrt(temp) + Z1) / Z4;
