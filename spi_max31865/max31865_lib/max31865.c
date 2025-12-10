@@ -1,13 +1,27 @@
 #include "max31865.h"
 
+#include <math.h>
+#include "main.h"
+#include "FreeRTOS.h"
+#include "task.h"
+
+// Инлайн функции управления выбором микросхемы
+static inline void max31865_cs_low(MAX31865_t *max) {
+  HAL_GPIO_WritePin((GPIO_TypeDef*) max->cs_gpio, max->cs_pin, GPIO_PIN_RESET);
+}
+
+static inline void max31865_cs_high(MAX31865_t *max) {
+  HAL_GPIO_WritePin((GPIO_TypeDef*) max->cs_gpio, max->cs_pin, GPIO_PIN_SET);
+}
+
 /* SPI чтение из регистра 8 бит */
 static uint8_t Max31865_readRegister8(MAX31865_t *max, uint8_t addr) {
   uint8_t ret = 0;
   addr &= 0x7F; // Read Mode
-  MAX31865_CS_LOW(max);
-  HAL_SPI_Transmit(max->spi, &addr, 1, 100);
-  HAL_SPI_Receive(max->spi, &ret, 1, 100);
-  MAX31865_CS_HIGH(max);
+  max31865_cs_low(max);
+  HAL_SPI_Transmit((SPI_HandleTypeDef*) max->spi, &addr, 1, 100);
+  HAL_SPI_Receive((SPI_HandleTypeDef*) max->spi, &ret, 1, 100);
+  max31865_cs_high(max);
   return ret;
 }
 
@@ -15,10 +29,10 @@ static uint8_t Max31865_readRegister8(MAX31865_t *max, uint8_t addr) {
 static uint16_t Max31865_readRegister16(MAX31865_t *max, uint8_t addr) {
   uint8_t buffer[2] = { 0 };
   addr &= 0x7F; // Read Mode
-  MAX31865_CS_LOW(max);
+  max31865_cs_low(max);
   HAL_SPI_Transmit(max->spi, &addr, 1, 100);
   HAL_SPI_Receive(max->spi, buffer, 2, 100);
-  MAX31865_CS_HIGH(max);
+  max31865_cs_high(max);
   return buffer[0] << 8 | buffer[1];
 }
 
@@ -26,9 +40,9 @@ static uint16_t Max31865_readRegister16(MAX31865_t *max, uint8_t addr) {
 static void Max31865_writeRegister(MAX31865_t *max, uint8_t addr, uint8_t data) {
   addr |= 0x80;  // Write Mode
   uint8_t txData[2] = { addr, data };
-  MAX31865_CS_LOW(max);
+  max31865_cs_low(max);
   HAL_SPI_Transmit(max->spi, txData, 2, 100);
-  MAX31865_CS_HIGH(max);
+  max31865_cs_high(max);
 }
 
 /* Функция очистки регистра статуса от ошибок */
@@ -60,10 +74,10 @@ static void Max31865_singleShot(MAX31865_t *max) {
 static uint16_t Max31865_readRTD(MAX31865_t *max) {
   Max31865_clearFault(max);
   Max31865_enableBias(max);
-  HAL_Delay(10);
+  vTaskDelay(pdMS_TO_TICKS(10));
 
   Max31865_singleShot(max);
-  HAL_Delay(65);
+  vTaskDelay(pdMS_TO_TICKS(65));
 
   uint16_t rtd = Max31865_readRegister16(max, MAX31865_RTD_MSB_REG) >> 1;
   Max31865_disableBias(max);

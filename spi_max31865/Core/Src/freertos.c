@@ -25,7 +25,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <string.h>
 #include "queue.h"
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
@@ -35,7 +34,10 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct {
+  float temp;     // Вычисленная температура
+  float res;      // Текущее сопротивление датчика PT100
+} varData_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -55,11 +57,7 @@ extern MAX31865_t pt100;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
+const osThreadAttr_t defaultTask_attributes = { .name = "defaultTask", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityNormal, };
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -76,22 +74,20 @@ void StartDefaultTask(void *argument);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* USER CODE BEGIN PREPOSTSLEEP */
-__weak void PreSleepProcessing(uint32_t *ulExpectedIdleTime)
-{
-/* place for user code */
+__weak void PreSleepProcessing(uint32_t *ulExpectedIdleTime) {
+  /* place for user code */
 }
 
-__weak void PostSleepProcessing(uint32_t *ulExpectedIdleTime)
-{
-/* place for user code */
+__weak void PostSleepProcessing(uint32_t *ulExpectedIdleTime) {
+  /* place for user code */
 }
 /* USER CODE END PREPOSTSLEEP */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
@@ -110,7 +106,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  xQueueStr = xQueueCreate(10, sizeof(char*));
+  xQueueStr = xQueueCreate(10, sizeof(varData_t));
   if (xQueueStr == NULL) {
     vErrorHandler();
   }
@@ -144,8 +140,7 @@ void MX_FREERTOS_Init(void) {
  * @retval None
  */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
+void StartDefaultTask(void *argument) {
   /* USER CODE BEGIN StartDefaultTask */
   /* Infinite loop */
   for (;;) {
@@ -163,57 +158,46 @@ void vErrorHandler() {
 
 // Callback фукнция задачи получения значения температуры с датчика MAX31865
 void vTaskGetTemp(void *argument) {
-  float res = 0, pt100Temp = 0;
-  DataNum_t num = { 0, 0 };
-  char *buffer = NULL;
+  varData_t varData = { 0, 0 };
   TickType_t xLastWakeTime = xTaskGetTickCount();
 
   for (;;) {
-    pt100Temp = Max31865_ReadTempC(&pt100, &res);
-    num = transformFloat(pt100Temp);
-    // Вычисляем сколько места необходимо динамически выделить для форматированной строки
-    int bufferSize = snprintf(NULL, 0, " %d.%d ", num.integerPart, num.fractional) + sizeof((char) '\0');
-    buffer = pvPortMalloc(bufferSize);
-    if (buffer != NULL) {
-      numToStr(buffer, bufferSize, num);
-      // Помещаем указатель на строку в очередь задач
-      if (xQueueSend(xQueueStr, &buffer, portMAX_DELAY) == pdPASS) {
-        // Ссылка на указатель успешно отправлена в очередь, указатель больше не нужен
-        buffer = NULL;
+    varData.temp = Max31865_ReadTempC(&pt100, &varData.res);
+    // Отправляем значения температуры и сопротивления в очередь
+    xQueueSend(xQueueStr, &varData, portMAX_DELAY);
 
-        // Память будет освобождена в задаче вывода на дисплей
-      } else {
-        // Если не удалось отправить в очередь, освобождаем память
-        vPortFree(buffer);
-        buffer = NULL;
-      }
-    }
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
   }
 }
 
 // Callback функция задачи вывода на экран данных, из очереди задач
 void vTaskShow(void *argument) {
-  uint8_t x = 0, y = 0;
-  char *buffer = NULL;
+  varData_t varData = { 0, 0 };
+  char tempStr[10] = { 0 };
+  char resStr[10] = { 0 };
+  uint8_t x = 0, y = 0, yMiddle = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
+  int length = 0;
+
   for (;;) {
     // Ожидание данных из очереди
-    if (xQueueReceive(xQueueStr, &buffer, portMAX_DELAY) == pdPASS) {
-      if (buffer != NULL) {
-        int length = strlen(buffer);
-        // Выводим значение на дисплей
-        // Размещаем строку по центру экрана
-        x = (SSD1306_WIDTH - length * Font_7x10.width) / 2;
-        y = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
-        ssd1306_SetCursor(x, y);
-        ssd1306_WriteString(buffer, Font_7x10, White);
+    if (xQueueReceive(xQueueStr, &varData, portMAX_DELAY) == pdPASS) {
 
-        ssd1306_UpdateScreen();
+      length = floatToString(tempStr, 10, varData.temp);
+      // Выводим значение температуры на дисплей
+      x = (SSD1306_WIDTH - length * Font_7x10.width) / 2;
+      y = yMiddle - 10;
+      ssd1306_SetCursor(x, y);
+      ssd1306_WriteString(tempStr, Font_7x10, White);
 
-        // Данные успешно переданы, освобождаем память и обнуляем указатель
-        vPortFree(buffer);
-        buffer = NULL;
-      }
+      length = floatToString(resStr, 10, varData.res);
+      // Выводим значение сопротивления датчика PT100 на дисплей
+      x = (SSD1306_WIDTH - length * Font_7x10.width) / 2;
+      y = yMiddle + 10;
+      ssd1306_SetCursor(x, y);
+      ssd1306_WriteString(resStr, Font_7x10, White);
+
+      ssd1306_UpdateScreen();
+
     }
   }
 }
