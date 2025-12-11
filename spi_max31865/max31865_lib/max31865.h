@@ -7,8 +7,8 @@ extern "C" {
 
 #include <stdint.h>
 
-#define MAX31865_RREF               (430.0f)  // Сопротивление эталонного резистора, в Ом
-#define MAX31865_RNOMINAL           (100.0f)  // Сопротивление датчика PT100, в Ом
+#define MAX31865_RREF               (430.0f)    // Сопротивление эталонного резистора, в Ом
+#define MAX31865_RNOMINAL           (100.193f)  // Сопротивление датчика PT100, в Ом
 
 #define MAX31865_2_WIRE             2
 #define MAX31865_3_WIRE             3
@@ -28,7 +28,7 @@ extern "C" {
 #define RTD_A                       (3.9083e-3f)
 #define RTD_B                       (-5.775e-7f)
 
-typedef struct {
+typedef const struct {
   void *spi;                        // SPI_HandleTypeDef
   void *cs_gpio;                    // GPIO_TypeDef
   uint16_t cs_pin;
