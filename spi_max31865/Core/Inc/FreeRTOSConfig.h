@@ -158,8 +158,8 @@ standard names. */
 /* USER CODE END Defines */
 
 #if defined(__ICCARM__) || defined(__CC_ARM) || defined(__GNUC__)
-void PreSleepProcessing(uint32_t *ulExpectedIdleTime);
-void PostSleepProcessing(uint32_t *ulExpectedIdleTime);
+void PreSleepProcessing(uint32_t ulExpectedIdleTime);
+void PostSleepProcessing(uint32_t ulExpectedIdleTime);
 #endif /* defined(__ICCARM__) || defined(__CC_ARM) || defined(__GNUC__) */
 
 /* The configPRE_SLEEP_PROCESSING() and configPOST_SLEEP_PROCESSING() macros

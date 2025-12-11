@@ -8,7 +8,7 @@ extern "C" {
 #include <stdint.h>
 
 #define MAX31865_RREF               (430.0f)    // Сопротивление эталонного резистора, в Ом
-#define MAX31865_RNOMINAL           (100.193f)  // Сопротивление датчика PT100, в Ом
+#define MAX31865_RNOMINAL           (100.6f)  // Сопротивление датчика PT100, в Ом
 
 #define MAX31865_2_WIRE             2
 #define MAX31865_3_WIRE             3
