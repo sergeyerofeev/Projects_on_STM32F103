@@ -43,7 +43,8 @@ typedef struct {
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+// Тайминги (в мс)
+#define LONG_PRESS_TIME_MS      1000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -62,11 +63,7 @@ uint16_t prevCount = 800;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
+const osThreadAttr_t defaultTask_attributes = { .name = "defaultTask", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityNormal, };
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -95,10 +92,10 @@ __weak void PostSleepProcessing(uint32_t ulExpectedIdleTime) {
 /* USER CODE END PREPOSTSLEEP */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
@@ -155,8 +152,7 @@ void MX_FREERTOS_Init(void) {
  * @retval None
  */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
+void StartDefaultTask(void *argument) {
   /* USER CODE BEGIN StartDefaultTask */
   /* Infinite loop */
   for (;;) {
@@ -188,6 +184,45 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
       portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 
     }
+  }
+}
+
+// Callback обработчик внешних прерываний
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+  static GPIO_PinState selectPreviousState = GPIO_PIN_RESET;
+  static GPIO_PinState editPreviousState = GPIO_PIN_RESET;
+  static TickType_t selectRisingTime;
+  static TickType_t editRisingTime;
+
+  if (GPIO_Pin == SELECT_Pin) {
+    GPIO_PinState selectCurrentState = HAL_GPIO_ReadPin(SELECT_GPIO_Port, SELECT_Pin);
+    if (selectPreviousState == GPIO_PIN_RESET && selectCurrentState == GPIO_PIN_SET) {
+      // Обнаружен RISING фронт
+      selectRisingTime = xTaskGetTickCount();
+    } else if (selectPreviousState == GPIO_PIN_SET && selectCurrentState == GPIO_PIN_RESET) {
+      // Обнаружен FALLING фронт
+      if (xTaskGetTickCount() - selectRisingTime < pdMS_TO_TICKS(LONG_PRESS_TIME_MS)) {
+        // Короткое нажатие кнопки
+      } else {
+        // Длинное нажатие кнопки
+      }
+    }
+    selectPreviousState = selectCurrentState;
+  }
+  if (GPIO_Pin == EDIT_Pin) {
+    GPIO_PinState editCurrentState = HAL_GPIO_ReadPin(EDIT_GPIO_Port, EDIT_Pin);
+    if (editPreviousState == GPIO_PIN_RESET && editCurrentState == GPIO_PIN_SET) {
+      // Обнаружен RISING фронт
+      editRisingTime = xTaskGetTickCount();
+    } else if (editPreviousState == GPIO_PIN_SET && editCurrentState == GPIO_PIN_RESET) {
+      // Обнаружен FALLING фронт
+      if (xTaskGetTickCount() - editRisingTime < pdMS_TO_TICKS(LONG_PRESS_TIME_MS)) {
+        // Короткое нажатие кнопки
+      } else {
+        // Длинное нажатие кнопки
+      }
+    }
+    editPreviousState = editCurrentState;
   }
 }
 
