@@ -187,45 +187,6 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
   }
 }
 
-// Callback обработчик внешних прерываний
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-  static GPIO_PinState selectPreviousState = GPIO_PIN_RESET;
-  static GPIO_PinState editPreviousState = GPIO_PIN_RESET;
-  static TickType_t selectRisingTime;
-  static TickType_t editRisingTime;
-
-  if (GPIO_Pin == SELECT_Pin) {
-    GPIO_PinState selectCurrentState = HAL_GPIO_ReadPin(SELECT_GPIO_Port, SELECT_Pin);
-    if (selectPreviousState == GPIO_PIN_RESET && selectCurrentState == GPIO_PIN_SET) {
-      // Обнаружен RISING фронт
-      selectRisingTime = xTaskGetTickCount();
-    } else if (selectPreviousState == GPIO_PIN_SET && selectCurrentState == GPIO_PIN_RESET) {
-      // Обнаружен FALLING фронт
-      if (xTaskGetTickCount() - selectRisingTime < pdMS_TO_TICKS(LONG_PRESS_TIME_MS)) {
-        // Короткое нажатие кнопки
-      } else {
-        // Длинное нажатие кнопки
-      }
-    }
-    selectPreviousState = selectCurrentState;
-  }
-  if (GPIO_Pin == EDIT_Pin) {
-    GPIO_PinState editCurrentState = HAL_GPIO_ReadPin(EDIT_GPIO_Port, EDIT_Pin);
-    if (editPreviousState == GPIO_PIN_RESET && editCurrentState == GPIO_PIN_SET) {
-      // Обнаружен RISING фронт
-      editRisingTime = xTaskGetTickCount();
-    } else if (editPreviousState == GPIO_PIN_SET && editCurrentState == GPIO_PIN_RESET) {
-      // Обнаружен FALLING фронт
-      if (xTaskGetTickCount() - editRisingTime < pdMS_TO_TICKS(LONG_PRESS_TIME_MS)) {
-        // Короткое нажатие кнопки
-      } else {
-        // Длинное нажатие кнопки
-      }
-    }
-    editPreviousState = editCurrentState;
-  }
-}
-
 // Callback фукнция задачи вывода значения энкодера на экран
 void vTaskEncoder(void *argument) {
   uint8_t x = 0, y = 0;
