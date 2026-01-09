@@ -25,7 +25,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "tim.h"
 #include "queue.h"
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
@@ -55,11 +54,7 @@ typedef struct {
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 QueueHandle_t xQueueStr;
-TaskHandle_t encoderHandle;
 extern MAX31865_t pt100;
-// Значения энкодера
-uint16_t newCount = 800;
-uint16_t prevCount = 800;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -73,8 +68,6 @@ const osThreadAttr_t defaultTask_attributes = {
 /* USER CODE BEGIN FunctionPrototypes */
 // Обработчик ошибок
 void vErrorHandler(void);
-// Прототип callback фукнции задачи вывода значения энкодера на экран
-void vTaskEncoder(void *argument);
 // Прототип callback фукнции задачи получения значения температуры с датчика MAX31865
 void vTaskGetTemp(void *argument);
 // Прототип callback функции задачи вывода на экран данных, из очереди задач
@@ -138,10 +131,6 @@ void MX_FREERTOS_Init(void) {
   if (xTaskCreate(vTaskShow, NULL, 128, NULL, osPriorityNormal, NULL) == pdFAIL) {
     vErrorHandler();
   }
-  // Задача вывода значения энкодера на экран
-  if (xTaskCreate(vTaskEncoder, NULL, 128, NULL, osPriorityNormal, &encoderHandle) == pdFAIL) {
-    vErrorHandler();
-  }
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -174,44 +163,6 @@ void StartDefaultTask(void *argument)
 void vErrorHandler() {
   __set_FAULTMASK(1); // Запрещаем все маскируемые прерывания
   NVIC_SystemReset(); // Программный сброс
-}
-
-// Callback обработчик прерывания энкодера TIM3
-void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
-  if (htim->Instance == TIM3) {
-    newCount = (uint16_t) __HAL_TIM_GET_COUNTER(htim);
-
-    if (newCount - prevCount >= 4 || prevCount - newCount >= 4) {
-      prevCount = newCount;
-      // Возобновляем задачу вывода значения энкодера на экран
-      BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-      if (xTaskResumeFromISR(encoderHandle) == pdTRUE) {
-        xHigherPriorityTaskWoken = pdTRUE;
-      }
-      // Если требуется переключение контекста
-      portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-
-    }
-  }
-}
-
-// Callback фукнция задачи вывода значения энкодера на экран
-void vTaskEncoder(void *argument) {
-  uint8_t x = 0, y = 0;
-  char str[18] = { 0 };
-  int length = 0;
-  for (;;) {
-    length = snprintf(str, 18, "%d - %d", newCount, prevCount >> 2);
-    // Очищаем поле для вывода
-    ssd1306_ClearArea(0, y, SSD1306_WIDTH, 10, Black);
-    // Выводим значение энкодера на дисплей
-    x = (SSD1306_WIDTH - length * Font_7x10.width) / 2;
-    ssd1306_SetCursor(x, y);
-    ssd1306_WriteString(str, Font_7x10, White);
-
-    ssd1306_UpdateScreen();
-    vTaskSuspend(NULL);
-  }
 }
 
 // Callback фукнция задачи получения значения температуры с датчика MAX31865

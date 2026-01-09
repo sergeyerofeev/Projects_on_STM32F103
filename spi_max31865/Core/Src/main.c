@@ -21,7 +21,6 @@
 #include "cmsis_os.h"
 #include "i2c.h"
 #include "spi.h"
-#include "tim.h"
 #include "usb_device.h"
 #include "gpio.h"
 
@@ -97,18 +96,11 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_SPI1_Init();
-  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   ssd1306_Init();
   ssd1306_Fill(Black);
 
   Max31865_Init(&pt100, MAX31865_2_WIRE);
-
-  // Включаем энкодер на TIM3
-  HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
-  HAL_TIM_Base_Start_IT(&htim3);
-  // Устанавливаем в счётный регистр предварительное значение
-  __HAL_TIM_SET_COUNTER(&htim3, 800);
   /* USER CODE END 2 */
 
   /* Init scheduler */
