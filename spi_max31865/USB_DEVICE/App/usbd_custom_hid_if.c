@@ -108,7 +108,6 @@ __ALIGN_BEGIN static uint8_t CUSTOM_HID_ReportDesc_FS[USBD_CUSTOM_HID_REPORT_DES
   0x91, 0x02,                    //   OUTPUT (Data,Var,Abs)
   0x95, 0x04,                    //   REPORT_COUNT (4)
   0x09, 0x02,                    //   USAGE (Vendor Usage 2)
-  0x09, 0x00,                    //   USAGE (Undefined)
   0x81, 0x02,                    //   INPUT (Data,Var,Abs)
   /* USER CODE END 0 */
   0xC0    /*     END_COLLECTION	             */
@@ -198,7 +197,7 @@ static int8_t CUSTOM_HID_OutEvent_FS(uint8_t event_idx, uint8_t state)
     USBD_CUSTOM_HID_HandleTypeDef *hhid = (USBD_CUSTOM_HID_HandleTypeDef*) hUsbDeviceFS.pClassData;
     varData_t varData;
     varData.res = hhid->Report_buf[1];
-    varData.temp = hhid->Report_buf[2] + hhid->Report_buf[3]/1000;
+    varData.temp = hhid->Report_buf[2];
     xQueueSend(xQueueStr, &varData, portMAX_DELAY);
   }
   return (USBD_OK);

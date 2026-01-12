@@ -153,7 +153,7 @@ void StartDefaultTask(void *argument)
   /* USER CODE BEGIN StartDefaultTask */
   /* Infinite loop */
   for (;;) {
-    vTaskDelete(NULL);
+    vTaskDelay(portMAX_DELAY);
   }
   /* USER CODE END StartDefaultTask */
 }
