@@ -26,18 +26,17 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "queue.h"
+#include "usbd_customhid.h"
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
 #include "max31865.h"
 #include "my_functions.h"
+#include "definition.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef struct {
-  float temp;     // Вычисленная температура
-  float res;      // Текущее сопротивление датчика PT100
-} varData_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -53,16 +52,14 @@ typedef struct {
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-QueueHandle_t xQueueStr;
+QueueHandle_t xQueueSSD1306;
+QueueHandle_t xQueueReceivingUSB;
+extern USBD_HandleTypeDef hUsbDeviceFS;
 extern MAX31865_t pt100;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
+const osThreadAttr_t defaultTask_attributes = { .name = "defaultTask", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityNormal, };
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -90,10 +87,10 @@ __weak void PostSleepProcessing(uint32_t ulExpectedIdleTime) {
 /* USER CODE END PREPOSTSLEEP */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
@@ -112,8 +109,14 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  xQueueStr = xQueueCreate(10, sizeof(varData_t));
-  if (xQueueStr == NULL) {
+  // Очередь для передачи данных на дисплей SSD1306
+  xQueueSSD1306 = xQueueCreate(10, sizeof(varMAX31865_t));
+  if (xQueueSSD1306 == NULL) {
+    vErrorHandler();
+  }
+  // Очередь для передачи принятых данных по USB
+  xQueueReceivingUSB = xQueueCreate(10, sizeof(varReceivingUSB_t));
+  if (xQueueReceivingUSB == NULL) {
     vErrorHandler();
   }
   /* USER CODE END RTOS_QUEUES */
@@ -146,14 +149,22 @@ void MX_FREERTOS_Init(void) {
  * @retval None
  */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
+void StartDefaultTask(void *argument) {
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
+  varReceivingUSB_t varData;
+  // Сбрасываем линию USB_DP при перезагрузке микроконтроллера
+  HAL_GPIO_WritePin(DP_RESET_GPIO_Port, DP_RESET_Pin, GPIO_PIN_RESET);
+  vTaskDelay(20);
+  HAL_GPIO_WritePin(DP_RESET_GPIO_Port, DP_RESET_Pin, GPIO_PIN_SET);
   /* Infinite loop */
   for (;;) {
-    vTaskDelay(portMAX_DELAY);
+    // Ожидание данных из очереди
+    if (xQueueReceive(xQueueReceivingUSB, &varData, portMAX_DELAY) == pdPASS) {
+      uint8_t sendReport[4] = { varData.reportID, varData.arrayKx[0], varData.arrayKx[1], varData.arrayKx[2] };
+      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendReport, 4);
+    }
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -167,13 +178,13 @@ void vErrorHandler() {
 
 // Callback фукнция задачи получения значения температуры с датчика MAX31865
 void vTaskGetTemp(void *argument) {
-  varData_t varData = { 0, 0 };
+  varMAX31865_t varData = { 0, 0 };
   TickType_t xLastWakeTime = xTaskGetTickCount();
 
   for (;;) {
     varData.temp = Max31865_ReadTempC(&pt100, &varData.res);
     // Отправляем значения температуры и сопротивления в очередь
-    xQueueSend(xQueueStr, &varData, portMAX_DELAY);
+    xQueueSend(xQueueSSD1306, &varData, portMAX_DELAY);
 
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
   }
@@ -181,7 +192,7 @@ void vTaskGetTemp(void *argument) {
 
 // Callback функция задачи вывода на экран данных, из очереди задач
 void vTaskShow(void *argument) {
-  varData_t varData = { 0, 0 };
+  varMAX31865_t varData = { 0, 0 };
   char tempStr[10] = { 0 };
   char resStr[10] = { 0 };
   uint8_t x = 0, y = 0, yMiddle = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
@@ -189,7 +200,7 @@ void vTaskShow(void *argument) {
 
   for (;;) {
     // Ожидание данных из очереди
-    if (xQueueReceive(xQueueStr, &varData, portMAX_DELAY) == pdPASS) {
+    if (xQueueReceive(xQueueSSD1306, &varData, portMAX_DELAY) == pdPASS) {
 
       length = floatToString(tempStr, 10, varData.temp);
       // Выводим значение температуры на дисплей
@@ -206,7 +217,6 @@ void vTaskShow(void *argument) {
       ssd1306_WriteString(resStr, Font_7x10, White);
 
       ssd1306_UpdateScreen();
-
     }
   }
 }
