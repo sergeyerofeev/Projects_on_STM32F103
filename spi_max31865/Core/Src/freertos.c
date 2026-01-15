@@ -162,8 +162,9 @@ void StartDefaultTask(void *argument) {
   for (;;) {
     // Ожидание данных из очереди
     if (xQueueReceive(xQueueReceivingUSB, &varData, portMAX_DELAY) == pdPASS) {
-      uint8_t sendReport[4] = { varData.reportID, varData.arrayKx[0], varData.arrayKx[1], varData.arrayKx[2] };
-      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendReport, 4);
+      //uint8_t sendReport[4] = { varData.reportID, varData.arrayKx[0], varData.arrayKx[1], varData.arrayKx[2] };
+      // Что то делаем с данными.
+      //USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendReport, 4);
     }
   }
   /* USER CODE END StartDefaultTask */
@@ -217,6 +218,10 @@ void vTaskShow(void *argument) {
       ssd1306_WriteString(resStr, Font_7x10, White);
 
       ssd1306_UpdateScreen();
+
+      // Отправляем измененную температуру по USB
+      uint16_t temp = (uint16_t) varData.temp;
+      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, (uint8_t[] ) { temp >> 8, temp | 0xFF, 0, 0 }, 4);
     }
   }
 }

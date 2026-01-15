@@ -91,8 +91,8 @@ extern QueueHandle_t xQueueReceivingUSB;
 
 /** Usb HID report descriptor. */
 __ALIGN_BEGIN static uint8_t CUSTOM_HID_ReportDesc_FS[USBD_CUSTOM_HID_REPORT_DESC_SIZE] __ALIGN_END = {
-/* USER CODE BEGIN 0 */
-0x06, 0x00, 0xff,              // USAGE_PAGE (Generic Desktop)
+    /* USER CODE BEGIN 0 */
+    0x06, 0x00, 0xff,              // USAGE_PAGE (Generic Desktop)
     0x09, 0x01,                    //   USAGE (Vendor Usage 1)
     0xa1, 0x01,                    // COLLECTION (Application)
     0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
