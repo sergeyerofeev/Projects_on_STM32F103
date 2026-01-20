@@ -30,7 +30,7 @@ int floatToString(char buffer[], size_t buffer_size, float value) {
   return snprintf(buffer, buffer_size, " %d,%d ", integerPart, fractional);
 }
 
-// Функция разложения числа типа float на целую и дробные части типа int, с округлением до одного знака после запятой
+// Функция разложения числа типа float в массив int8_t, с округлением до одного знака после запятой
 DataNum_t transformFloat(float value) {
   // Обработка отрицательных чисел
   const int negative = value < 0;
@@ -53,14 +53,11 @@ DataNum_t transformFloat(float value) {
     fractional /= 10;
   }
 
-  if (negative)
+  if (negative) {
     integerPart = -integerPart;
+    fractional = -fractional;
+  }
 
-  return (DataNum_t ) { .integerPart = integerPart, .fractional = fractional } ;
-    }
+  return (DataNum_t ) { .array[0] = integerPart >> 8, .array[1] = integerPart & 0xFF, .array[2] = fractional } ;
+}
 
-// Преобразуем целую и дробную части числа в строку
-    int numToStr(char buffer[], size_t bufferSize, DataNum_t num) {
-      // Возвращаем фактическую длину отформатированной строки без символа '\0'
-      return snprintf(buffer, bufferSize, " %d,%d ", num.integerPart, num.fractional);
-    }

@@ -198,6 +198,9 @@ void vTaskShow(void *argument) {
   char resStr[10] = { 0 };
   uint8_t x = 0, y = 0, yMiddle = SSD1306_HEIGHT / 2 - Font_7x10.height / 2;
   int length = 0;
+  DataNum_t tempArr;
+  uint8_t sendArray[5];
+  uint16_t timeCount = 0;
 
   for (;;) {
     // Ожидание данных из очереди
@@ -219,9 +222,13 @@ void vTaskShow(void *argument) {
 
       ssd1306_UpdateScreen();
 
-      // Отправляем измененную температуру по USB
-      uint16_t temp = (uint16_t) varData.temp;
-      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, (uint8_t[] ) { temp >> 8, temp | 0xFF, 0, 0 }, 4);
+      // Отправляем измененную температуру и время в секундах, по линии USB
+      tempArr = transformFloat(varData.temp);
+      memcpy(sendArray, tempArr.array, 3);
+      sendArray[3] = timeCount >> 8;
+      sendArray[4] = timeCount & 0xFF;
+      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendArray, 5);
+      timeCount++;
     }
   }
 }
