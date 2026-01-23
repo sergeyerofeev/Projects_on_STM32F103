@@ -51,7 +51,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-MAX31865_t pt100 = { .spi = &hspi1, .cs_gpio = CS_GPIO_Port, .cs_pin = CS_Pin };
+MAX31865_t hMAX31865 = { .spi = &hspi1, .cs_gpio = CS_GPIO_Port, .cs_pin = CS_Pin };
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,7 +102,7 @@ int main(void)
   ssd1306_Init();
   ssd1306_Fill(Black);
 
-  Max31865_Init(&pt100, MAX31865_2_WIRE);
+  Max31865_Init(&hMAX31865, MAX31865_2_WIRE);
   /* USER CODE END 2 */
 
   /* Init scheduler */
