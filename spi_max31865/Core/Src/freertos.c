@@ -55,8 +55,10 @@
 TaskHandle_t taskShowHandle;
 
 /*QueueHandle_t xQueueSSD1306;*/
-QueueHandle_t xQueueReceivingUSB;
 extern USBD_HandleTypeDef hUsbDeviceFS;
+extern TIM_HandleTypeDef htim4;
+// Данные полученные по USB
+extern varReceivingUSB_t receivingData;
 extern MAX31865_t hMAX31865;
 varMAX31865_t varData; // = { .temp = 25.0, .res = 100.0 };
 
@@ -113,11 +115,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  // Очередь для передачи принятых данных по USB
-  xQueueReceivingUSB = xQueueCreate(10, sizeof(varReceivingUSB_t));
-  if (xQueueReceivingUSB == NULL) {
-    vErrorHandler();
-  }
+  /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -152,7 +150,11 @@ void StartDefaultTask(void *argument) {
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
-  varReceivingUSB_t varData;
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  float errorPrevious = 0;
+  float errorCurrent = 0;
+  float errorIntegral = 0;
+  float errorDifferential = 0;
   // Сбрасываем линию USB_DP при перезагрузке микроконтроллера
   HAL_GPIO_WritePin(DP_RESET_GPIO_Port, DP_RESET_Pin, GPIO_PIN_RESET);
   vTaskDelay(20);
@@ -160,11 +162,26 @@ void StartDefaultTask(void *argument) {
   /* Infinite loop */
   for (;;) {
     // Ожидание данных из очереди
-    if (xQueueReceive(xQueueReceivingUSB, &varData, portMAX_DELAY) == pdPASS) {
+    if (receivingData.reportID == 1) {
       //uint8_t sendReport[4] = { varData.reportID, varData.arrayKx[0], varData.arrayKx[1], varData.arrayKx[2] };
-      // Что то делаем с данными.
-      //USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendReport, 4);
+      // Проверяем если ШИМ не запущен, включаем
+      if (HAL_TIM_PWM_GetState(&htim4) == HAL_TIM_STATE_READY && HAL_TIM_PWM_GetState(&htim4) != HAL_TIM_STATE_BUSY) {
+        HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
+      }
+/*      if ((((Ki * errorIntegral) <= PID_DUTY_CYCLE_MAX) && (errorCurrent >= 0)) ||
+      (((Ki * errorIntegral) >= PID_DUTY_CYCLE_MIN) && (errorCurrent < 0)))
+      {
+     errorIntegral += errorCurrent * timeCounterSec;
+      }
+ */
+
+    } else if (receivingData.reportID == 2) {
+      // Проверяем если ШИМ запущен, выключаем
+      if (HAL_TIM_PWM_GetState(&htim4) == HAL_TIM_STATE_BUSY) {
+        HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_3);
+      }
     }
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
   }
   /* USER CODE END StartDefaultTask */
 }

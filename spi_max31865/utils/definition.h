@@ -15,8 +15,10 @@ typedef struct {
 
 // Данные принятые по USB
 typedef struct {
-  uint8_t reportID;
-  uint8_t arrayKx[3];
+  volatile uint8_t reportID;
+  volatile uint8_t kp;
+  volatile uint8_t ki;
+  volatile uint8_t kd;
 } varReceivingUSB_t;
 
 // Структура для преобразования float числа в массив int8_t
