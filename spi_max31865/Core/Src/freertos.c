@@ -57,10 +57,11 @@ TaskHandle_t taskShowHandle;
 /*QueueHandle_t xQueueSSD1306;*/
 extern USBD_HandleTypeDef hUsbDeviceFS;
 extern TIM_HandleTypeDef htim4;
+
 // Данные полученные по USB
 extern varReceivingUSB_t receivingData;
 extern MAX31865_t hMAX31865;
-varMAX31865_t varData; // = { .temp = 25.0, .res = 100.0 };
+varMAX31865_t varData;
 
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
@@ -75,6 +76,8 @@ void vErrorHandler(void);
 void vTaskGetTemp(void *argument);
 // Прототип callback функции задачи вывода на экран данных, из очереди задач
 void vTaskShow(void *argument);
+// Ограничительная функция
+static float _constrain(float data, float minOut, float maxOut);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -83,11 +86,11 @@ extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* USER CODE BEGIN PREPOSTSLEEP */
-__weak void PreSleepProcessing(uint32_t *ulExpectedIdleTime) {
+__weak void PreSleepProcessing(uint32_t ulExpectedIdleTime) {
   /* place for user code */
 }
 
-__weak void PostSleepProcessing(uint32_t *ulExpectedIdleTime) {
+__weak void PostSleepProcessing(uint32_t ulExpectedIdleTime) {
   /* place for user code */
 }
 /* USER CODE END PREPOSTSLEEP */
@@ -151,8 +154,11 @@ void StartDefaultTask(void *argument) {
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  float errorPrevious = 0;
+  float setPoint = 230.0;
+  float minOut = 0;
+  float maxOut = (float) htim4.Init.Period + 1;
   float errorCurrent = 0;
+  float errorPrevious = 0;
   float errorIntegral = 0;
   float errorDifferential = 0;
   // Сбрасываем линию USB_DP при перезагрузке микроконтроллера
@@ -163,22 +169,23 @@ void StartDefaultTask(void *argument) {
   for (;;) {
     // Ожидание данных из очереди
     if (receivingData.reportID == 1) {
-      //uint8_t sendReport[4] = { varData.reportID, varData.arrayKx[0], varData.arrayKx[1], varData.arrayKx[2] };
       // Проверяем если ШИМ не запущен, включаем
       if (HAL_TIM_PWM_GetState(&htim4) == HAL_TIM_STATE_READY && HAL_TIM_PWM_GetState(&htim4) != HAL_TIM_STATE_BUSY) {
         HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
       }
-/*      if ((((Ki * errorIntegral) <= PID_DUTY_CYCLE_MAX) && (errorCurrent >= 0)) ||
-      (((Ki * errorIntegral) >= PID_DUTY_CYCLE_MIN) && (errorCurrent < 0)))
-      {
-     errorIntegral += errorCurrent * timeCounterSec;
-      }
- */
-
+      errorCurrent = setPoint - varData.temp;
+      errorIntegral = _constrain(errorIntegral + errorCurrent * receivingData.ki, minOut, maxOut);
+      errorDifferential = errorCurrent - errorPrevious;
+      errorPrevious = errorCurrent;
+      htim4.Instance->CCR3 = (uint32_t) _constrain(errorCurrent * receivingData.kp + errorIntegral + errorDifferential * receivingData.kd, minOut, maxOut);
     } else if (receivingData.reportID == 2) {
       // Проверяем если ШИМ запущен, выключаем
       if (HAL_TIM_PWM_GetState(&htim4) == HAL_TIM_STATE_BUSY) {
         HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_3);
+        errorCurrent = 0;
+        errorPrevious = 0;
+        errorIntegral = 0;
+        errorDifferential = 0;
       }
     }
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
@@ -234,13 +241,28 @@ void vTaskShow(void *argument) {
 
     ssd1306_UpdateScreen();
 
-    // Отправляем измененную температуру и время в секундах, по линии USB
-    tempArr = transformFloat(varData.temp);
-    memcpy(sendArray, tempArr.array, 3);
-    sendArray[3] = timeCount >> 8;
-    sendArray[4] = timeCount & 0xFF;
-    USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendArray, 5);
-    timeCount++;
+    if (receivingData.reportID == 1) {
+      // Отправляем измененную температуру и время в секундах, по линии USB
+      tempArr = transformFloat(varData.temp);
+      memcpy(sendArray, tempArr.array, 3);
+      sendArray[3] = timeCount >> 8;
+      sendArray[4] = timeCount & 0xFF;
+      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendArray, 5);
+      timeCount++;
+    } else if (receivingData.reportID == 2 && timeCount > 0) {
+      timeCount = 0;
+    }
+  }
+}
+
+// Ограничительная функция
+static float _constrain(float data, float minOut, float maxOut) {
+  if (data > maxOut) {
+    return maxOut;
+  } else if (data < minOut) {
+    return minOut;
+  } else {
+    return data;
   }
 }
 /* USER CODE END Application */

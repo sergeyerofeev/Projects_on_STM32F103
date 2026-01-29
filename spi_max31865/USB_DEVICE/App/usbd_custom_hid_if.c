@@ -179,11 +179,11 @@ static int8_t CUSTOM_HID_DeInit_FS(void) {
  */
 static int8_t CUSTOM_HID_OutEvent_FS(uint8_t event_idx, uint8_t state) {
   /* USER CODE BEGIN 6 */
+  receivingData.reportID = event_idx;
   if (event_idx == 1) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     USBD_CUSTOM_HID_HandleTypeDef *hhid = (USBD_CUSTOM_HID_HandleTypeDef*) hUsbDeviceFS.pClassData;
     // Все данные передаём через глобальные переменные
-    receivingData.reportID = event_idx;
     receivingData.kp = hhid->Report_buf[1];
     receivingData.ki = hhid->Report_buf[2];
     receivingData.kd = hhid->Report_buf[3];
