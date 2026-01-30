@@ -63,6 +63,8 @@ extern varReceivingUSB_t receivingData;
 extern MAX31865_t hMAX31865;
 varMAX31865_t varData;
 
+uint16_t ccr3 = 0;
+
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -154,7 +156,7 @@ void StartDefaultTask(void *argument) {
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  float setPoint = 230.0;
+  float setPoint = 100.0;
   float minOut = 0;
   float maxOut = (float) htim4.Init.Period + 1;
   float errorCurrent = 0;
@@ -169,19 +171,22 @@ void StartDefaultTask(void *argument) {
   for (;;) {
     // Ожидание данных из очереди
     if (receivingData.reportID == 1) {
-      // Проверяем если ШИМ не запущен, включаем
-      if (HAL_TIM_PWM_GetState(&htim4) == HAL_TIM_STATE_READY && HAL_TIM_PWM_GetState(&htim4) != HAL_TIM_STATE_BUSY) {
+      // Проверяем, активен ли выход канала 3, если нет, то запускаем ШИМ
+      if ((TIM4->CCER & TIM_CCER_CC3E) == 0) {
         HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
       }
       errorCurrent = setPoint - varData.temp;
-      errorIntegral = _constrain(errorIntegral + errorCurrent * receivingData.ki, minOut, maxOut);
+      errorIntegral = errorIntegral + errorCurrent * (receivingData.ki / 5);
       errorDifferential = errorCurrent - errorPrevious;
       errorPrevious = errorCurrent;
-      htim4.Instance->CCR3 = (uint32_t) _constrain(errorCurrent * receivingData.kp + errorIntegral + errorDifferential * receivingData.kd, minOut, maxOut);
+      ccr3 = (uint16_t) _constrain(errorCurrent * receivingData.kp + errorIntegral + errorDifferential * receivingData.kd, minOut, maxOut);
+      htim4.Instance->CCR3 = ccr3;
     } else if (receivingData.reportID == 2) {
-      // Проверяем если ШИМ запущен, выключаем
-      if (HAL_TIM_PWM_GetState(&htim4) == HAL_TIM_STATE_BUSY) {
+      // Проверяем, активен ли выход канала 3, если да, то останавливаем ШИМ
+      if (TIM4->CCER & TIM_CCER_CC3E) {
         HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_3);
+        ccr3 = 0;
+        htim4.Instance->CCR3 = ccr3;
         errorCurrent = 0;
         errorPrevious = 0;
         errorIntegral = 0;
@@ -232,7 +237,7 @@ void vTaskShow(void *argument) {
     ssd1306_SetCursor(x, y);
     ssd1306_WriteString(tempStr, Font_7x10, White);
 
-    length = floatToString(resStr, 10, varData.res);
+    length = floatToString(resStr, 10, ccr3);
     // Выводим значение сопротивления датчика PT100 на дисплей
     x = (SSD1306_WIDTH - length * Font_7x10.width) / 2;
     y = yMiddle + 10;
