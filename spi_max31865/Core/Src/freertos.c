@@ -25,6 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
 #include "queue.h"
 #include "usbd_customhid.h"
 #include "ssd1306.h"
@@ -62,9 +63,6 @@ extern TIM_HandleTypeDef htim4;
 extern varReceivingUSB_t receivingData;
 extern MAX31865_t hMAX31865;
 varMAX31865_t varData;
-
-uint16_t ccr3 = 0;
-
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -78,8 +76,6 @@ void vErrorHandler(void);
 void vTaskGetTemp(void *argument);
 // Прототип callback функции задачи вывода на экран данных, из очереди задач
 void vTaskShow(void *argument);
-// Ограничительная функция
-static float _constrain(float data, float minOut, float maxOut);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -156,18 +152,22 @@ void StartDefaultTask(void *argument) {
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  float setPoint = 100.0;
-  float minOut = 0;
+  const float setPoint = 200.0f;
+  const float minOut = 0.0f;
   float maxOut = (float) htim4.Init.Period + 1;
-  float errorCurrent = 0;
-  float errorPrevious = 0;
-  float errorIntegral = 0;
-  float errorDifferential = 0;
+  const float maxIntegral = 4800.0f;
+  const float minIntegral = -4800.0f;
+  float errorCurrent = 0.0f;
+  float errorPrevious = 0.0f;
+  float errorIntegral = 0.0f;
+  float errorDifferential = 0.0f;
+  float result = 0.0f;
+
   // Сбрасываем линию USB_DP при перезагрузке микроконтроллера
   HAL_GPIO_WritePin(DP_RESET_GPIO_Port, DP_RESET_Pin, GPIO_PIN_RESET);
   vTaskDelay(20);
   HAL_GPIO_WritePin(DP_RESET_GPIO_Port, DP_RESET_Pin, GPIO_PIN_SET);
-  /* Infinite loop */
+
   for (;;) {
     // Ожидание данных из очереди
     if (receivingData.reportID == 1) {
@@ -176,21 +176,31 @@ void StartDefaultTask(void *argument) {
         HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
       }
       errorCurrent = setPoint - varData.temp;
-      errorIntegral = errorIntegral + errorCurrent * (receivingData.ki / 5);
+      errorIntegral += errorCurrent;
+      // Ограничиваем интегральную составляющую
+      if (errorIntegral > maxIntegral)
+        errorIntegral = maxIntegral;
+      else if (errorIntegral < minIntegral)
+        errorIntegral = minIntegral;
       errorDifferential = errorCurrent - errorPrevious;
       errorPrevious = errorCurrent;
-      ccr3 = (uint16_t) _constrain(errorCurrent * receivingData.kp + errorIntegral + errorDifferential * receivingData.kd, minOut, maxOut);
-      htim4.Instance->CCR3 = ccr3;
+      result = errorCurrent * receivingData.kp + errorIntegral * receivingData.ki / 5.0f + errorDifferential * receivingData.kd;
+      // Ограничение выхода
+      if (result > maxOut) {
+        result = maxOut;
+      } else if (result < minOut) {
+        result = minOut;
+      }
+      htim4.Instance->CCR3 = (uint16_t) result;
     } else if (receivingData.reportID == 2) {
       // Проверяем, активен ли выход канала 3, если да, то останавливаем ШИМ
       if (TIM4->CCER & TIM_CCER_CC3E) {
         HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_3);
-        ccr3 = 0;
-        htim4.Instance->CCR3 = ccr3;
-        errorCurrent = 0;
-        errorPrevious = 0;
-        errorIntegral = 0;
-        errorDifferential = 0;
+        htim4.Instance->CCR3 = 0;
+        errorCurrent = 0.0f;
+        errorPrevious = 0.0f;
+        errorIntegral = 0.0f;
+        errorDifferential = 0.0f;
       }
     }
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
@@ -208,11 +218,14 @@ void vErrorHandler() {
 // Callback фукнция задачи получения значения температуры с датчика MAX31865
 void vTaskGetTemp(void *argument) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
+  //bool flagGive = true;
 
   for (;;) {
     varData.temp = Max31865_ReadTempC(&hMAX31865, &varData.res);
+    // if (flagGive)
     // Отправляем уведомление задаче вывода информации на дисплей
     xTaskNotifyGive(taskShowHandle);
+    //flagGive ^= true;
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
   }
 }
@@ -237,7 +250,7 @@ void vTaskShow(void *argument) {
     ssd1306_SetCursor(x, y);
     ssd1306_WriteString(tempStr, Font_7x10, White);
 
-    length = floatToString(resStr, 10, ccr3);
+    length = floatToString(resStr, 10, varData.res);
     // Выводим значение сопротивления датчика PT100 на дисплей
     x = (SSD1306_WIDTH - length * Font_7x10.width) / 2;
     y = yMiddle + 10;
@@ -257,17 +270,6 @@ void vTaskShow(void *argument) {
     } else if (receivingData.reportID == 2 && timeCount > 0) {
       timeCount = 0;
     }
-  }
-}
-
-// Ограничительная функция
-static float _constrain(float data, float minOut, float maxOut) {
-  if (data > maxOut) {
-    return maxOut;
-  } else if (data < minOut) {
-    return minOut;
-  } else {
-    return data;
   }
 }
 /* USER CODE END Application */
