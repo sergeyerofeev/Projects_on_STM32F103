@@ -43,7 +43,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 // Тайминги (в мс)
-#define LONG_PRESS_TIME_MS      1000
+#define DT 200
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -152,14 +152,15 @@ void StartDefaultTask(void *argument) {
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const float setPoint = 200.0f;
+  const float dt = 0.2f;
+  const float setPoint = 120.0f;    // Целевая температура
   const float minOut = 0.0f;
-  float maxOut = (float) htim4.Init.Period + 1;
-  const float maxIntegral = 4800.0f;
-  const float minIntegral = -4800.0f;
+  //float maxOut = (float) htim4.Init.Period + 1;
+  const float maxOut = 4800.0f;
   float errorCurrent = 0.0f;
   float errorPrevious = 0.0f;
   float errorIntegral = 0.0f;
+  //float errorIntegralPrevious = 0.0f;
   float errorDifferential = 0.0f;
   float result = 0.0f;
 
@@ -175,35 +176,37 @@ void StartDefaultTask(void *argument) {
       if ((TIM4->CCER & TIM_CCER_CC3E) == 0) {
         HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
       }
+      // Вычисление ошибки, разница между уставкой и измеренной температурой
       errorCurrent = setPoint - varData.temp;
-      errorIntegral += errorCurrent;
-      // Ограничиваем интегральную составляющую
-      if (errorIntegral > maxIntegral)
-        errorIntegral = maxIntegral;
-      else if (errorIntegral < minIntegral)
-        errorIntegral = minIntegral;
-      errorDifferential = errorCurrent - errorPrevious;
+
+      // errorIntegral = errorIntegralPrevious + errorCurrent * dt * receivingData.ki;
+
+      if (((receivingData.ki * errorIntegral <= 2400.0f) && (errorCurrent >= 0)) || ((receivingData.ki * errorIntegral >= -2400.0f) && (errorCurrent < 0))) {
+        errorIntegral += errorCurrent * dt * receivingData.ki;
+      }
+
+      errorDifferential = (errorCurrent - errorPrevious) * receivingData.kd * 20;
       errorPrevious = errorCurrent;
-      result = errorCurrent * receivingData.kp + errorIntegral * receivingData.ki / 5.0f + errorDifferential * receivingData.kd;
-      // Ограничение выхода
-      if (result > maxOut) {
+
+      result = errorCurrent * receivingData.kp + errorIntegral + errorDifferential;
+
+      // Проверяем насыщение выхода и если необходимо замораживаем интегральную составляющую
+      if (result >= maxOut) {
         result = maxOut;
-      } else if (result < minOut) {
+      } else if (result <= minOut) {
         result = minOut;
       }
+
       htim4.Instance->CCR3 = (uint16_t) result;
     } else if (receivingData.reportID == 2) {
       // Проверяем, активен ли выход канала 3, если да, то останавливаем ШИМ
       if (TIM4->CCER & TIM_CCER_CC3E) {
         HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_3);
         htim4.Instance->CCR3 = 0;
-        errorCurrent = 0.0f;
-        errorPrevious = 0.0f;
-        errorIntegral = 0.0f;
-        errorDifferential = 0.0f;
+        //errorIntegralPrevious = 0.0f;
       }
     }
-    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DT));
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -218,15 +221,17 @@ void vErrorHandler() {
 // Callback фукнция задачи получения значения температуры с датчика MAX31865
 void vTaskGetTemp(void *argument) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  //bool flagGive = true;
+  uint8_t show1s = 0;
 
   for (;;) {
     varData.temp = Max31865_ReadTempC(&hMAX31865, &varData.res);
-    // if (flagGive)
-    // Отправляем уведомление задаче вывода информации на дисплей
-    xTaskNotifyGive(taskShowHandle);
-    //flagGive ^= true;
-    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
+    if (show1s >= 4) {
+      // Отправляем уведомление задаче вывода информации на дисплей
+      xTaskNotifyGive(taskShowHandle);
+      show1s = 0;
+    } else
+      show1s++;
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DT));
   }
 }
 
