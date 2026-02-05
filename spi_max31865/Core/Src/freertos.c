@@ -43,7 +43,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 // Тайминги (в мс)
-#define DT 200
+#define DT 500
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -63,6 +63,7 @@ extern TIM_HandleTypeDef htim4;
 extern varReceivingUSB_t receivingData;
 extern MAX31865_t hMAX31865;
 varMAX31865_t varData;
+float result = 0.0f;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -152,17 +153,17 @@ void StartDefaultTask(void *argument) {
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const float dt = 0.2f;
-  const float setPoint = 120.0f;    // Целевая температура
+  const float dt = 0.5f;
+  const float setPoint = 230.0f;    // Целевая температура
+
   const float minOut = 0.0f;
   //float maxOut = (float) htim4.Init.Period + 1;
   const float maxOut = 4800.0f;
+  //float kp = receivingData.kp;
   float errorCurrent = 0.0f;
-  float errorPrevious = 0.0f;
   float errorIntegral = 0.0f;
-  //float errorIntegralPrevious = 0.0f;
   float errorDifferential = 0.0f;
-  float result = 0.0f;
+  //float result = 0.0f;
 
   // Сбрасываем линию USB_DP при перезагрузке микроконтроллера
   HAL_GPIO_WritePin(DP_RESET_GPIO_Port, DP_RESET_Pin, GPIO_PIN_RESET);
@@ -178,15 +179,14 @@ void StartDefaultTask(void *argument) {
       }
       // Вычисление ошибки, разница между уставкой и измеренной температурой
       errorCurrent = setPoint - varData.temp;
-
-      // errorIntegral = errorIntegralPrevious + errorCurrent * dt * receivingData.ki;
-
-      if (((receivingData.ki * errorIntegral <= 2400.0f) && (errorCurrent >= 0)) || ((receivingData.ki * errorIntegral >= -2400.0f) && (errorCurrent < 0))) {
-        errorIntegral += errorCurrent * dt * receivingData.ki;
+      /*if (errorCurrent > 10) {
+        kp = receivingData.kp;
+      } else {
+        kp = receivingData.kp * 1.5;
       }
-
-      errorDifferential = (errorCurrent - errorPrevious) * receivingData.kd * 20;
-      errorPrevious = errorCurrent;
+*/
+      /*errorDifferential = (errorCurrent - errorPrevious) * receivingData.kd / dt;
+       errorPrevious = errorCurrent;*/
 
       result = errorCurrent * receivingData.kp + errorIntegral + errorDifferential;
 
@@ -195,6 +195,8 @@ void StartDefaultTask(void *argument) {
         result = maxOut;
       } else if (result <= minOut) {
         result = minOut;
+      } else {
+        errorIntegral += errorCurrent * dt * receivingData.ki / 5.0f;
       }
 
       htim4.Instance->CCR3 = (uint16_t) result;
@@ -203,7 +205,7 @@ void StartDefaultTask(void *argument) {
       if (TIM4->CCER & TIM_CCER_CC3E) {
         HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_3);
         htim4.Instance->CCR3 = 0;
-        //errorIntegralPrevious = 0.0f;
+        errorIntegral = 0.0f;
       }
     }
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DT));
@@ -221,16 +223,20 @@ void vErrorHandler() {
 // Callback фукнция задачи получения значения температуры с датчика MAX31865
 void vTaskGetTemp(void *argument) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  uint8_t show1s = 0;
+  //uint8_t show1s = 0;
+  bool flagShow = true;
 
   for (;;) {
     varData.temp = Max31865_ReadTempC(&hMAX31865, &varData.res);
-    if (show1s >= 4) {
+    //if (show1s >= 4) {
+    if (flagShow) {
       // Отправляем уведомление задаче вывода информации на дисплей
       xTaskNotifyGive(taskShowHandle);
-      show1s = 0;
-    } else
-      show1s++;
+    }
+    flagShow ^= true;
+    /*      show1s = 0;
+     } else
+     show1s++;*/
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DT));
   }
 }
@@ -255,7 +261,7 @@ void vTaskShow(void *argument) {
     ssd1306_SetCursor(x, y);
     ssd1306_WriteString(tempStr, Font_7x10, White);
 
-    length = floatToString(resStr, 10, varData.res);
+    length = floatToString(resStr, 10, result);
     // Выводим значение сопротивления датчика PT100 на дисплей
     x = (SSD1306_WIDTH - length * Font_7x10.width) / 2;
     y = yMiddle + 10;
