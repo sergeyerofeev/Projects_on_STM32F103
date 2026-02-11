@@ -205,7 +205,7 @@ void StartDefaultTask(void *argument) {
 
       deltaTemp = setPoint - varData.temp;
       if (deltaTemp < boostKp && deltaTemp > 0) {
-       // Увеличение коэффициента kp включаем только при приближении к setPoint, снизу
+        // Увеличение коэффициента kp включаем только при приближении к setPoint, снизу
         result = errorCurrent * receivingData.kp * 2 + errorIntegral;
       } else {
         result = errorCurrent * receivingData.kp + errorIntegral;
@@ -285,17 +285,19 @@ void vTaskShow(void *argument) {
 
     ssd1306_UpdateScreen();
 
+    // Отправляем измененную температуру и время в секундах, по линии USB
+    tempArr = transformFloat(varData.temp);
+    memcpy(sendArray, tempArr.array, 3);
     if (receivingData.reportID == 1) {
-      // Отправляем измененную температуру и время в секундах, по линии USB
-      tempArr = transformFloat(varData.temp);
-      memcpy(sendArray, tempArr.array, 3);
       sendArray[3] = timeCount >> 8;
       sendArray[4] = timeCount & 0xFF;
-      USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendArray, 5);
       timeCount++;
-    } else if (receivingData.reportID == 2 && timeCount > 0) {
+    } else if (receivingData.reportID == 2 && timeCount != 0) {
+      sendArray[3] = 0;
+      sendArray[4] = 0;
       timeCount = 0;
     }
+    USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, sendArray, 5);
   }
 }
 /* USER CODE END Application */
