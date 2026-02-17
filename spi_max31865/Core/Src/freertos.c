@@ -237,7 +237,6 @@ void StartDefaultTask(void *argument) {
 void vErrorHandler() {
   __set_FAULTMASK(1); // Запрещаем все маскируемые прерывания
   NVIC_SystemReset(); // Программный сброс
-  __NOP();
 }
 
 // Callback фукнция задачи получения значения температуры с датчика MAX31865
