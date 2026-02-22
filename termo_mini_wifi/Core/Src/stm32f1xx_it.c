@@ -22,6 +22,7 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "usart_ring.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,7 +42,9 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+extern volatile uint16_t rx_buffer_head;
+extern volatile uint16_t rx_buffer_tail;
+extern unsigned char rx_buffer[UART_RX_BUFFER_SIZE];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -205,7 +208,16 @@ void SysTick_Handler(void)
 void USART1_IRQHandler(void)
 {
   /* USER CODE BEGIN USART1_IRQn 0 */
+  if ((MYUART.Instance->SR & USART_SR_RXNE) != RESET) {
+    uint8_t rbyte = (uint8_t) (MYUART.Instance->DR & (uint8_t) 0x00FF);
+    uint16_t i = (uint16_t) (rx_buffer_head + 1) % UART_RX_BUFFER_SIZE;
 
+    if (i != rx_buffer_tail) {
+      rx_buffer[rx_buffer_head] = rbyte;
+      rx_buffer_head = i;
+    }
+  }
+  return;
   /* USER CODE END USART1_IRQn 0 */
   HAL_UART_IRQHandler(&huart1);
   /* USER CODE BEGIN USART1_IRQn 1 */

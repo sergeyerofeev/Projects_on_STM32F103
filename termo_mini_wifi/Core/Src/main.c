@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "max31865.h"
+#include "usart_ring.h"
 #include "util.h"
 /* USER CODE END Includes */
 
@@ -47,7 +48,9 @@ typedef struct {
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-// Тайминги (в мс)
+// Размер массива для приёма данных по UART
+#define SIZE_BF 128
+// Периодичность (в мс) вызова функции расчёта ПИД регулятора
 #define DT 500
 /* USER CODE END PD */
 
@@ -73,7 +76,9 @@ float ki = 0.2f;
 const float dt = DT / 1000.0f;
 float setPoint = 220.0f;          // Целевая температура
 float deltaPerCycle = 4.0f * dt;  // Скорость нагрева 2°C/цикл или 4°C/s
-    /* USER CODE END PV */
+
+char str[SIZE_BF];                // Буффер принятых данных по UART
+/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -122,6 +127,7 @@ int main(void) {
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   Max31865_Init(&hMAX31865, MAX31865_2_WIRE);
+  __HAL_UART_ENABLE_IT(&MYUART, UART_IT_RXNE);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -135,6 +141,22 @@ int main(void) {
         tasks[i].callback();
       }
     }
+
+    // Постоянно проверяем кольцевой буффер UART на наличие данных
+    if (uart_available()) {
+      uint8_t i = 0;
+      // Выполним небольшую задержку, чтобы остатки данных загрузились
+      HAL_Delay(10);
+      while (uart_available()) {
+        str[i++] = uart_read();
+
+        if (i == SIZE_BF - 1)
+          break;
+      }
+      // Все данные получены, завершаем строку
+      str[i] = '\0';
+    }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
