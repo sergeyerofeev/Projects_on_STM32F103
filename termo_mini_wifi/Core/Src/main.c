@@ -78,6 +78,7 @@ float setPoint = 220.0f;          // Целевая температура
 float deltaPerCycle = 4.0f * dt;  // Скорость нагрева 2°C/цикл или 4°C/s
 
 char str[SIZE_BF];                // Буффер принятых данных по UART
+bool isComplete = false;          // Передаваемая строка полностью принята
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -155,6 +156,8 @@ int main(void) {
       }
       // Все данные получены, завершаем строку
       str[i] = '\0';
+      // Выставляем флаг окончания приёма данных
+      isComplete = true;
     }
 
     /* USER CODE END WHILE */
