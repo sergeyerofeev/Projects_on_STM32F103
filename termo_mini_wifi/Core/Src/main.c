@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "max31865.h"
 #include "usart_ring.h"
@@ -49,9 +50,11 @@ typedef struct {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 // Размер массива для приёма данных по UART
-#define SIZE_BF 128
+#define SIZE_BF 255
 // Периодичность (в мс) вызова функции расчёта ПИД регулятора
 #define DT 500
+// Максимальное количество пар время:температура
+#define MAX_PAIRS 20
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -76,9 +79,11 @@ float ki = 0.2f;
 const float dt = DT / 1000.0f;
 float setPoint = 220.0f;          // Целевая температура
 float deltaPerCycle = 4.0f * dt;  // Скорость нагрева 2°C/цикл или 4°C/s
+int timeCount = 0;
 
 char str[SIZE_BF];                // Буффер принятых данных по UART
-bool isComplete = false;          // Передаваемая строка полностью принята
+int pairs[MAX_PAIRS][2];          // Массив пар время:температура
+int pairСount = 0;               // Текущее количество пар
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -147,7 +152,7 @@ int main(void) {
     if (uart_available()) {
       uint8_t i = 0;
       // Выполним небольшую задержку, чтобы остатки данных загрузились
-      HAL_Delay(10);
+      HAL_Delay(20);
       while (uart_available()) {
         str[i++] = uart_read();
 
@@ -156,8 +161,39 @@ int main(void) {
       }
       // Все данные получены, завершаем строку
       str[i] = '\0';
-      // Выставляем флаг окончания приёма данных
-      isComplete = true;
+
+      // Начинаем извлекать данные
+      if (strlen(str) == 1) {
+        reportID = (uint8_t) atoi(str);
+      } else {
+        // Разбиваем строку на токены по пробелам
+        char *token = strtok(str, " ");
+        reportID = (uint8_t) atoi(token);
+        token = strtok(NULL, " ");
+        kp = atof(token);
+        token = strtok(NULL, " ");
+        ki = atof(token) / 5.0f;
+        token = strtok(NULL, " ");
+
+        while (token != NULL) {
+          // Проверяем, содержит ли токен двоеточие
+          if (strchr(token, ':') != NULL) {
+            // Это пара значений
+            char time[10], temp[10];
+
+            // Разбиваем по двоеточию
+            sscanf(token, "%[^:]:%s", time, temp);
+
+            if (pairСount < MAX_PAIRS) {
+              pairs[pairСount][0] = atoi(time);
+              pairs[pairСount][1] = atoi(temp);
+              pairСount++;
+            }
+          }
+
+          token = strtok(NULL, " ");
+        }
+      }
     }
 
     /* USER CODE END WHILE */
@@ -281,7 +317,6 @@ static void _task1(void) {
 }
 // Функция задачи отправки данных по Wi-Fi
 static void _task2(void) {
-  static uint16_t timeCount = 0;
   static char strFloat[10];       // Строка для преобразованного значения типа float
   static char strOut[10];         // Строка для передачи по UART
   static int strLen = 0;          // Длина передаваемой строки
