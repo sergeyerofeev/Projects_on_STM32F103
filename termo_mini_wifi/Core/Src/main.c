@@ -73,17 +73,20 @@ uint8_t reportID = 2;
 MAX31865_t hMAX31865 = { .spi = &hspi1, .cs_gpio = CS_GPIO_Port, .cs_pin = CS_Pin };
 float temp;
 
-float kp = 30.0f;
+float kp = 50.0f;
 float ki = 0.2f;
 
 const float dt = DT / 1000.0f;
-float setPoint = 220.0f;          // Целевая температура
-float deltaPerCycle = 4.0f * dt;  // Скорость нагрева 2°C/цикл или 4°C/s
+float setPoint = 0.0f;            // Целевая температура
+float deltaPerCycle = 3.0f * dt;  // Скорость нагрева 2°C/цикл или 4°C/s
 int timeCount = 0;
+int timeEnd = 0;                  // Конечное время цикла
+int cycleCount = 0;               // Счётчик циклов
 
 char str[SIZE_BF];                // Буффер принятых данных по UART
 int pairs[MAX_PAIRS][2];          // Массив пар время:температура
-int pairСount = 0;               // Текущее количество пар
+int pairСount = 0;                // Текущее количество пар
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -93,6 +96,8 @@ void SystemClock_Config(void);
 static void _task1(void);
 // Прототип функции задачи отправки данных по Wi-Fi
 static void _task2(void);
+// Прототип функции проверки и обработки полученных данных по Wi-Fi
+static void _task3(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -150,52 +155,24 @@ int main(void) {
 
     // Постоянно проверяем кольцевой буффер UART на наличие данных
     if (uart_available()) {
-      uint8_t i = 0;
-      // Выполним небольшую задержку, чтобы остатки данных загрузились
-      HAL_Delay(20);
-      while (uart_available()) {
-        str[i++] = uart_read();
-
-        if (i == SIZE_BF - 1)
-          break;
-      }
-      // Все данные получены, завершаем строку
-      str[i] = '\0';
-
-      // Начинаем извлекать данные
-      if (strlen(str) == 1) {
-        reportID = (uint8_t) atoi(str);
-      } else {
-        // Разбиваем строку на токены по пробелам
-        char *token = strtok(str, " ");
-        reportID = (uint8_t) atoi(token);
-        token = strtok(NULL, " ");
-        kp = atof(token);
-        token = strtok(NULL, " ");
-        ki = atof(token) / 5.0f;
-        token = strtok(NULL, " ");
-
-        while (token != NULL) {
-          // Проверяем, содержит ли токен двоеточие
-          if (strchr(token, ':') != NULL) {
-            // Это пара значений
-            char time[10], temp[10];
-
-            // Разбиваем по двоеточию
-            sscanf(token, "%[^:]:%s", time, temp);
-
-            if (pairСount < MAX_PAIRS) {
-              pairs[pairСount][0] = atoi(time);
-              pairs[pairСount][1] = atoi(temp);
-              pairСount++;
-            }
-          }
-
-          token = strtok(NULL, " ");
-        }
-      }
+      _task3();
     }
 
+    if (reportID == 1) {
+      cycleCount = 0;
+      // Данные для запуска получены, начинает обработку
+      if (cycleCount < pairСount && cycleCount + 1 <= pairСount) {
+        // Расчитываем скорость нагрева
+        deltaPerCycle = ((pairs[cycleCount + 1][1] - pairs[cycleCount][1]) / (pairs[cycleCount + 1][0] - pairs[cycleCount][0])) * dt;
+        cycleCount = 1;
+        // Устанавливаем целевую температуру
+        setPoint = pairs[cycleCount][1];
+        // Устанавливаем конечное время цикла
+        timeEnd = pairs[cycleCount][0];
+        // Разрешаем работу нагревателя
+        reportID = 3;
+      }
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -262,7 +239,25 @@ static void _task1(void) {
   // Измеряем температуру
   temp = Max31865_ReadTempC(&hMAX31865);
 
-  if (reportID == 1) {
+  if (reportID == 3) {
+    // Проверяем не вышло ли текущее время за время конца цикла
+    if (timeCount >= timeEnd) {
+      // Переопределяем данные для следующего цикла
+      if (cycleCount < pairСount && cycleCount + 1 <= pairСount) {
+        // Расчитываем скорость нагрева
+        deltaPerCycle = ((pairs[cycleCount + 1][1] - pairs[cycleCount][1]) / (pairs[cycleCount + 1][0] - pairs[cycleCount][0])) * dt;
+        cycleCount++;
+        // Устанавливаем целевую температуру
+        setPoint = pairs[cycleCount][1];
+        // Устанавливаем конечное время цикла
+        timeEnd = pairs[cycleCount][0];
+        // Разрешаем работу нагревателя
+        reportID = 3;
+      } else {
+        // Циклов больше нет, выключаем нагреватель
+        reportID = 2;
+      }
+    }
     // Проверяем, активен ли выход канала 3, если нет, то запускаем ШИМ
     if ((TIM4->CCER & TIM_CCER_CC3E) == 0) {
       HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
@@ -322,19 +317,64 @@ static void _task2(void) {
   static int strLen = 0;          // Длина передаваемой строки
 
   // Отправляем измененную температуру и время в секундах, по линии UART
-  if (reportID == 1) {
-    strLen = snprintf(strOut, sizeof(strOut), "%d %d", (int) temp, timeCount);
+  if (reportID == 3) {
     timeCount++;
   } else if (reportID == 2) {
     if (timeCount != 0)
       timeCount = 0;
-    // Преобразуем значение температуры (тип float) в строку
-    floatToString(strFloat, sizeof(strFloat), temp);
-    strLen = snprintf(strOut, sizeof(strOut), "%s %d", strFloat, timeCount);
   }
+  // Преобразуем значение температуры (тип float) в строку
+  floatToString(strFloat, sizeof(strFloat), temp);
+  strLen = snprintf(strOut, sizeof(strOut), "%s %d", strFloat, timeCount);
   HAL_UART_Transmit_IT(&huart1, (uint8_t*) strOut, strLen);
 }
+// Функция проверки и обработки полученных данных по Wi-Fi
+static void _task3(void) {
+  uint8_t i = 0;
+  // Выполним небольшую задержку, чтобы остатки данных загрузились
+  HAL_Delay(20);
+  while (uart_available()) {
+    str[i++] = uart_read();
 
+    if (i == SIZE_BF - 1)
+      break;
+  }
+  // Все данные получены, завершаем строку
+  str[i] = '\0';
+
+  // Начинаем извлекать данные
+  if (strlen(str) == 1) {
+    reportID = (uint8_t) atoi(str);
+  } else {
+    // Разбиваем строку на токены по пробелам
+    char *token = strtok(str, " ");
+    reportID = (uint8_t) atoi(token);
+    token = strtok(NULL, " ");
+    kp = atof(token);
+    token = strtok(NULL, " ");
+    ki = atof(token) / 5.0f;
+    token = strtok(NULL, " ");
+
+    while (token != NULL) {
+      // Проверяем, содержит ли токен двоеточие
+      if (strchr(token, ':') != NULL) {
+        // Это пара значений
+        char time[10], temp[10];
+
+        // Разбиваем по двоеточию
+        sscanf(token, "%[^:]:%s", time, temp);
+
+        if (pairСount < MAX_PAIRS) {
+          pairs[pairСount][0] = atoi(time);
+          pairs[pairСount][1] = atoi(temp);
+          pairСount++;
+        }
+      }
+
+      token = strtok(NULL, " ");
+    }
+  }
+}
 /* USER CODE END 4 */
 
 /**
