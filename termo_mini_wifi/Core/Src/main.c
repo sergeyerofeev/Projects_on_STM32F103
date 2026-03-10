@@ -319,14 +319,14 @@ static void _task2(void) {
   // Отправляем измененную температуру и время в секундах, по линии UART
   if (reportID == 3) {
     timeCount++;
-  } else if (reportID == 2) {
+  } else if (reportID == 1 || reportID == 2) {
     if (timeCount != 0)
       timeCount = 0;
   }
   // Преобразуем значение температуры (тип float) в строку
   floatToString(strFloat, sizeof(strFloat), temp);
   strLen = snprintf(strOut, sizeof(strOut), "%s %d", strFloat, timeCount);
-  HAL_UART_Transmit_IT(&huart1, (uint8_t*) strOut, strLen);
+  HAL_UART_Transmit(&huart1, (uint8_t*) strOut, strLen, 100);
 }
 // Функция проверки и обработки полученных данных по Wi-Fi
 static void _task3(void) {

@@ -28,6 +28,6 @@ int floatToString(char buffer[], size_t buffer_size, float value) {
     integerPart = -integerPart;
 
   // Возвращаем фактическую длину отформатированной строки без символа '\0'
-  return snprintf(buffer, buffer_size, " %d,%d ", integerPart, fractional);
+  return snprintf(buffer, buffer_size, "%d.%d", integerPart, fractional);
 }
 
