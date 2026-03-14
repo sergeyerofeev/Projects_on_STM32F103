@@ -49,10 +49,9 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-extern TaskHandle_t dataShowHandle;
+extern TaskHandle_t countShowHandle;
 // Массив структур
 extern BmsData bmsData[];
-
 // Размер буфера для приёма данных указываем максимального размера
 uint8_t rxData[RX_BUFSIZE] = { 0, };
 /* USER CODE END PV */
@@ -164,7 +163,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
     // Отправляем уведомление задаче
-    vTaskNotifyGiveFromISR(dataShowHandle, &xHigherPriorityTaskWoken);
+    vTaskNotifyGiveFromISR(countShowHandle, &xHigherPriorityTaskWoken);
 
     // Если задача taskBatMonitorHandle высокий приоритет, выполняем переключение контекста
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);

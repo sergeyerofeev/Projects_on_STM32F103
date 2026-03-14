@@ -53,7 +53,7 @@
 /* USER CODE BEGIN Variables */
 // Дескрипторы задач
 TaskHandle_t countShowHandle;
-TaskHandle_t dataShowHandle;
+//TaskHandle_t dataShowHandle;
 // Все ошибки складываем в одну переменную
 bool isError = false;
 // Позиция в структуре адресов запросов
@@ -66,7 +66,10 @@ extern BmsData bmsData[];
 extern const size_t bmsDataCount;
 // Размер буфера для приёма данных указываем максимального размера
 extern uint8_t rxData[RX_BUFSIZE];
-
+// Флаг наличия соединения
+bool isConnected = false;
+// Счётчик времени ожидания ответа
+uint8_t timeoutCounter = 0;
 // Счётчик для фонового вывода чисел на экран
 uint8_t countFlag = 0;
 char strCount[3] = { 0, };
@@ -81,8 +84,12 @@ const osThreadAttr_t defaultTask_attributes = { .name = "defaultTask", .stack_si
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 void vCountShow(void *argument);
-void vDataShow(void *argument);
+//void vDataShow(void *argument);
 void vTaskSystemReset(void *argument);
+// Прототип функции обработки полученных данных
+void _processReceivedData(void);
+// Прототип функции отображения всех данных
+void _displayAllData(void);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -133,9 +140,9 @@ void MX_FREERTOS_Init(void) {
   if (xTaskCreate(vCountShow, NULL, 128, NULL, osPriorityNormal, &countShowHandle) == pdFAIL) {
     isError = true;
   }
-  if (xTaskCreate(vDataShow, NULL, 128, NULL, osPriorityNormal, &dataShowHandle) == pdFAIL) {
-    isError = true;
-  }
+  /*  if (xTaskCreate(vDataShow, NULL, 128, NULL, osPriorityNormal, &dataShowHandle) == pdFAIL) {
+   isError = true;
+   }*/
   if (xTaskCreate(vTaskSystemReset, "taskSystemReset", 128, NULL, osPriorityHigh, NULL) == pdFAIL) {
     isError = true;
   }
@@ -165,113 +172,81 @@ void StartDefaultTask(void *argument) {
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
-
-// С периодичностью в 1 секунду показываем на экране значение счётчика
+// С периодичностью в 1 секунду показываем на экране значение счётчика или данные BMS
 void vCountShow(void *argument) {
+  TickType_t lastWakeTime = xTaskGetTickCount();
+
   for (;;) {
-    // Если данные от BMS не поступили выводим в центре экрана значение счётчика
+    // Всегда сначала показываем счётчик (по умолчанию)
     strCount[0] = "0123456789ABCDEF"[countFlag >> 4 & 0x0F];
     strCount[1] = "0123456789ABCDEF"[countFlag & 0x0F];
-    // Размещаем строку по центру экрана
-    x = (SSD1306_WIDTH - strlen(strCount) * Font_16x24.width) / 2;
-    y = SSD1306_HEIGHT / 2 - Font_16x24.height / 2;
-    ssd1306_SetCursor(x, y);
-    ssd1306_Fill(Black);
-    ssd1306_WriteString(strCount, Font_16x24, White);
-    ssd1306_UpdateScreen();
-    countFlag++;
 
-    // Прошёл интервал в 1 секунду, можем сделать запрос по UART
+    // Если нет соединения, показываем счётчик
+    if (!isConnected) {
+      x = (SSD1306_WIDTH - strlen(strCount) * Font_16x24.width) / 2;
+      y = SSD1306_HEIGHT / 2 - Font_16x24.height / 2;
+      ssd1306_SetCursor(x, y);
+      ssd1306_Fill(Black);
+      ssd1306_WriteString(strCount, Font_16x24, White);
+      ssd1306_UpdateScreen();
+      countFlag++;
+    }
+
+    // ВСЕГДА пытаемся отправить запрос (даже если соединения нет)
+    addrCount = 0;
+
+    // Начинаем цикл опроса всех данных
+    HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
     HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
 
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
-}
+    // Ждём ответа с таймаутом
+    timeoutCounter = 0;
+    bool dataReceived = false;
 
-// Как только данные получены, выводим их на экран
-void vDataShow(void *argument) {
-  for (;;) {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    // Получили данные от BMS
-    switch (bmsData[addrCount].addr) {
-      case 0x17:
-        // Версия прошивки BMS
-        uint16_t version = (rxData[8] << 8) | rxData[7];
-        if (version == 0) {
-          // Если число равно 0, выводим нулевую версию
-          strcpy(bmsData[addrCount].strRes, "v 0.0.0.0");
-        } else {
-          bmsData[addrCount].strRes[0] = 'v';
-          bmsData[addrCount].strRes[1] = ' ';
+    while (addrCount < bmsDataCount && timeoutCounter < 5) {
+      // Ждём уведомление от прерывания с таймаутом
+      if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200)) == pdTRUE) {
+        // Данные получены успешно - соединение есть!
+        dataReceived = true;
+        isConnected = true;
 
-          uint8_t j = 2; // Начальный индекс, с которого записываем символы в строковый массив
-          bool first = true;
+        _processReceivedData();
+        addrCount++;
+        timeoutCounter = 0;
 
-          for (int8_t i = 12; i >= 0; i -= 4) {
-            if ((version >> i == 0) && first) {
-              // Последовательно отбрасываем первые нули
-              continue;
-            } else {
-              first = false;
-            }
-            // Преобразуем шестнадцатиричное значение в символ
-            bmsData[addrCount].strRes[j++] = "0123456789ABCDEF"[(version) >> i & 0x0F];
-            bmsData[addrCount].strRes[j++] = '.';
-          }
-          // Вместо последней точки ставим символ конца строки
-          bmsData[addrCount].strRes[--j] = '\0';
+        if (addrCount < bmsDataCount) {
+          // Отправляем следующий запрос
+          HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
+          HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
         }
-        break;
-
-      case 0x32:
-        // Текущее значение остаточной мощности, 0-100%
-        uint8_t power = rxData[7];
-        snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u %%", power);
-        break;
-      case 0x31:
-        // Текущая остаточная емкость, в mAh
-        uint16_t capacity = (rxData[8] << 8) | rxData[7];
-        snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u mAh", capacity);
-        break;
-      case 0x34:
-        // Текущее напряжение,  в V
-        int16_t voltage = (rxData[8] << 8) | rxData[7];
-        snprintf(bmsData[addrCount].strRes, STR_SIZE, "%d,%d V", voltage / 100, voltage % 100);
-        break;
-      case 0x60:
-        // Вендор зашитый в BMS
-        uint32_t code = (rxData[7] << 24) | (rxData[8] << 16) | (rxData[9] << 8) | rxData[10];
-        strcpy(bmsData[addrCount].strRes, code_to_vendor(code));
-        break;
-    }
-    addrCount++;
-    if (addrCount < bmsDataCount) {
-      // Снова запускаем чтение данных
-      HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
-      HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
-    } else {
-      // Удаляем задачу вывода значения счётчика
-      vTaskDelete(countShowHandle);
-      // Выводим на экран все данные полученные от bms
-      ssd1306_Fill(Black);
-
-      for (uint8_t i = 0, y = 2; i < 5; i++, y += 13) {
-        x = (SSD1306_WIDTH - strlen(bmsData[i].strRes) * Font_7x10.width) / 2;
-        ssd1306_SetCursor(x, y);
-        ssd1306_WriteString(bmsData[i].strRes, Font_7x10, White);
+      } else {
+        // Таймаут - данных нет
+        timeoutCounter++;
       }
-      ssd1306_UpdateScreen();
-
-      // Отключаем ВСЕ прерывания UART
-      __HAL_UART_DISABLE_IT(&huart1, UART_IT_RXNE);  // Приемный буфер не пуст
-      __HAL_UART_DISABLE_IT(&huart1, UART_IT_TXE);   // Буфер передачи пуст
-      __HAL_UART_DISABLE_IT(&huart1, UART_IT_TC);    // Передача завершена
-      __HAL_UART_DISABLE_IT(&huart1, UART_IT_IDLE);  // Линия в состоянии IDLE
-      __HAL_UART_DISABLE_IT(&huart1, UART_IT_PE);    // Ошибка четности
-      __HAL_UART_DISABLE_IT(&huart1, UART_IT_ERR);   // Ошибка (FE, OE, NE)
-      __HAL_UART_DISABLE_IT(&huart1, UART_IT_CTS);   // CTS изменение
-      __HAL_UART_DISABLE_IT(&huart1, UART_IT_LBD);   // Break обнаружение
     }
+
+    // Анализируем результат опроса
+    if (dataReceived) {
+      if (addrCount == bmsDataCount) {
+        // Все данные успешно получены - показываем их на экране
+        _displayAllData();
+
+        // ВАЖНО: Сбрасываем счётчик для следующего цикла
+        addrCount = 0;
+
+        // Соединение есть и данные получены
+        isConnected = true;
+      } else {
+        // Получены не все данные - соединение нестабильное
+        isConnected = false;
+      }
+    } else {
+      // Нет ответа от BMS - соединения нет
+      isConnected = false;
+    }
+
+    // Ждём ровно 1 секунду с учётом времени обработки
+    vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(1000));
   }
 }
 
@@ -292,6 +267,92 @@ void vTaskSystemReset(void *argument) {
       vTaskDelete(NULL);
     }
   }
+}
+
+// Функция обработки полученных данных
+void _processReceivedData(void) {
+  switch (bmsData[addrCount].addr) {
+    case 0x17:
+      // Версия прошивки BMS
+      uint16_t version = (rxData[8] << 8) | rxData[7];
+      if (version == 0) {
+        strcpy(bmsData[addrCount].strRes, "v 0.0.0.0");
+      } else {
+        bmsData[addrCount].strRes[0] = 'v';
+        bmsData[addrCount].strRes[1] = ' ';
+
+        uint8_t j = 2;
+        bool first = true;
+
+        for (int8_t i = 12; i >= 0; i -= 4) {
+          if ((version >> i == 0) && first) {
+            continue;
+          } else {
+            first = false;
+          }
+          bmsData[addrCount].strRes[j++] = "0123456789ABCDEF"[(version) >> i & 0x0F];
+          bmsData[addrCount].strRes[j++] = '.';
+        }
+        bmsData[addrCount].strRes[--j] = '\0';
+      }
+      break;
+
+    case 0x32:
+      // Текущее значение остаточной мощности
+      uint8_t power = rxData[7];
+      snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u %%", power);
+      break;
+
+    case 0x31:
+      // Текущая остаточная емкость
+      uint16_t capacity = (rxData[8] << 8) | rxData[7];
+      snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u mAh", capacity);
+      break;
+
+    case 0x34:
+      // Текущее напряжение
+      int16_t voltage = (rxData[8] << 8) | rxData[7];
+      snprintf(bmsData[addrCount].strRes, STR_SIZE, "%d,%d V", voltage / 100, voltage % 100);
+      break;
+
+    case 0x60:
+      // Вендор
+      uint32_t code = (rxData[7] << 24) | (rxData[8] << 16) | (rxData[9] << 8) | rxData[10];
+      strcpy(bmsData[addrCount].strRes, code_to_vendor(code));
+      break;
+  }
+}
+
+// Функция отображения всех данных
+void _displayAllData(void) {
+  // Массив для хранения предыдущих значений строк
+  static char prevStrings[bmsDataCount][STR_SIZE] = { 0 };
+  bool needUpdate = false;
+
+  // Сначала проверяем, были ли изменения
+  for (uint8_t i = 0; i < bmsDataCount; i++) {
+    if (strcmp(prevStrings[i], bmsData[i].strRes) != 0) {
+      needUpdate = true;
+      break;
+    }
+  }
+  // Если изменений нет, выходим
+  if (!needUpdate) {
+    return;
+  }
+  // Есть изменения в данных, очищаем экран
+  ssd1306_Fill(Black);
+
+  for (uint8_t i = 0, y = 2; i < 5; i++, y += 13) {
+    x = (SSD1306_WIDTH - strlen(bmsData[i].strRes) * Font_7x10.width) / 2;
+    ssd1306_SetCursor(x, y);
+    ssd1306_WriteString(bmsData[i].strRes, Font_7x10, White);
+    // Сохраняем новое значение
+    if (strcmp(prevStrings[i], bmsData[i].strRes) != 0) {
+      strcpy(prevStrings[i], bmsData[i].strRes);
+    }
+  }
+  ssd1306_UpdateScreen();
 }
 /* USER CODE END Application */
 
