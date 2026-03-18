@@ -66,12 +66,14 @@ extern BmsData bmsData[];
 extern const size_t bmsDataCount;
 // Размер буфера для приёма данных указываем максимального размера
 extern uint8_t rxData[RX_BUFSIZE];
+
 // Флаг наличия соединения
 bool isConnected = false;
 // Счётчик времени ожидания ответа
 uint8_t timeoutCounter = 0;
 // Счётчик для фонового вывода чисел на экран
-uint8_t countFlag = 0;
+uint8_t countNum = 0;
+bool countFlag = false;
 char strCount[3] = { 0, };
 // Первая позиция вывода символа на экран SSD1306
 uint8_t x = 0;
@@ -79,7 +81,11 @@ uint8_t y = 0;
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = { .name = "defaultTask", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityNormal, };
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -107,10 +113,10 @@ __weak void PostSleepProcessing(uint32_t *ulExpectedIdleTime) {
 /* USER CODE END PREPOSTSLEEP */
 
 /**
- * @brief  FreeRTOS initialization
- * @param  None
- * @retval None
- */
+  * @brief  FreeRTOS initialization
+  * @param  None
+  * @retval None
+  */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
@@ -161,7 +167,8 @@ void MX_FREERTOS_Init(void) {
  * @retval None
  */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument) {
+void StartDefaultTask(void *argument)
+{
   /* USER CODE BEGIN StartDefaultTask */
   /* Infinite loop */
   for (;;) {
@@ -178,8 +185,8 @@ void vCountShow(void *argument) {
 
   for (;;) {
     // Всегда сначала показываем счётчик (по умолчанию)
-    strCount[0] = "0123456789ABCDEF"[countFlag >> 4 & 0x0F];
-    strCount[1] = "0123456789ABCDEF"[countFlag & 0x0F];
+    strCount[0] = "0123456789ABCDEF"[countNum >> 4 & 0x0F];
+    strCount[1] = "0123456789ABCDEF"[countNum & 0x0F];
 
     // Если нет соединения, показываем счётчик
     if (!isConnected) {
@@ -189,15 +196,16 @@ void vCountShow(void *argument) {
       ssd1306_Fill(Black);
       ssd1306_WriteString(strCount, Font_16x24, White);
       ssd1306_UpdateScreen();
-      countFlag++;
+      countNum++;
+      if (!countFlag) {
+        countFlag = true; // Началась итерация цифр
+      }
     }
 
-    // ВСЕГДА пытаемся отправить запрос (даже если соединения нет)
     addrCount = 0;
-
     // Начинаем цикл опроса всех данных
     HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
-    HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
+    HAL_UART_Transmit(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE, 10);
 
     // Ждём ответа с таймаутом
     timeoutCounter = 0;
@@ -217,7 +225,7 @@ void vCountShow(void *argument) {
         if (addrCount < bmsDataCount) {
           // Отправляем следующий запрос
           HAL_UART_Receive_IT(&huart1, rxData, bmsData[addrCount].rxBufSize);
-          HAL_UART_Transmit_IT(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE);
+          HAL_UART_Transmit(&huart1, bmsData[addrCount].dataTx, TX_BUFSIZE, 10);
         }
       } else {
         // Таймаут - данных нет
@@ -276,10 +284,10 @@ void _processReceivedData(void) {
       // Версия прошивки BMS
       uint16_t version = (rxData[8] << 8) | rxData[7];
       if (version == 0) {
-        strcpy(bmsData[addrCount].strRes, "v 0.0.0.0");
+        strcpy(bmsData[addrCount].strResult, "v 0.0.0.0");
       } else {
-        bmsData[addrCount].strRes[0] = 'v';
-        bmsData[addrCount].strRes[1] = ' ';
+        bmsData[addrCount].strResult[0] = 'v';
+        bmsData[addrCount].strResult[1] = ' ';
 
         uint8_t j = 2;
         bool first = true;
@@ -290,66 +298,67 @@ void _processReceivedData(void) {
           } else {
             first = false;
           }
-          bmsData[addrCount].strRes[j++] = "0123456789ABCDEF"[(version) >> i & 0x0F];
-          bmsData[addrCount].strRes[j++] = '.';
+          bmsData[addrCount].strResult[j++] = "0123456789ABCDEF"[(version) >> i & 0x0F];
+          bmsData[addrCount].strResult[j++] = '.';
         }
-        bmsData[addrCount].strRes[--j] = '\0';
+        bmsData[addrCount].strResult[--j] = '\0';
       }
       break;
 
     case 0x32:
       // Текущее значение остаточной мощности
       uint8_t power = rxData[7];
-      snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u %%", power);
+      snprintf(bmsData[addrCount].strResult, STR_SIZE, "%u %%", power);
       break;
 
     case 0x31:
       // Текущая остаточная емкость
       uint16_t capacity = (rxData[8] << 8) | rxData[7];
-      snprintf(bmsData[addrCount].strRes, STR_SIZE, "%u mAh", capacity);
+      snprintf(bmsData[addrCount].strResult, STR_SIZE, "%u mAh", capacity);
       break;
 
     case 0x34:
       // Текущее напряжение
       int16_t voltage = (rxData[8] << 8) | rxData[7];
-      snprintf(bmsData[addrCount].strRes, STR_SIZE, "%d,%d V", voltage / 100, voltage % 100);
+      snprintf(bmsData[addrCount].strResult, STR_SIZE, "%d,%d V", voltage / 100, voltage % 100);
       break;
 
     case 0x60:
       // Вендор
       uint32_t code = (rxData[7] << 24) | (rxData[8] << 16) | (rxData[9] << 8) | rxData[10];
-      strcpy(bmsData[addrCount].strRes, code_to_vendor(code));
+      strcpy(bmsData[addrCount].strResult, code_to_vendor(code));
       break;
   }
 }
 
 // Функция отображения всех данных
 void _displayAllData(void) {
-  // Массив для хранения предыдущих значений строк
-  static char prevStrings[bmsDataCount][STR_SIZE] = { 0 };
   bool needUpdate = false;
-
-  // Сначала проверяем, были ли изменения
-  for (uint8_t i = 0; i < bmsDataCount; i++) {
-    if (strcmp(prevStrings[i], bmsData[i].strRes) != 0) {
-      needUpdate = true;
-      break;
+  // Если перед этим выводилась итерация, пропускаем проверку уникальности данных
+  if (!countFlag) {
+    // Сначала проверяем, были ли изменения
+    for (uint8_t i = 0; i < bmsDataCount; i++) {
+      if (strcmp(bmsData[i].strPrev, bmsData[i].strResult) != 0) {
+        needUpdate = true;
+        break;
+      }
     }
-  }
-  // Если изменений нет, выходим
-  if (!needUpdate) {
-    return;
+    // Если изменений нет, выходим
+    if (!needUpdate) {
+      return;
+    }
+    countFlag = false;
   }
   // Есть изменения в данных, очищаем экран
   ssd1306_Fill(Black);
 
   for (uint8_t i = 0, y = 2; i < 5; i++, y += 13) {
-    x = (SSD1306_WIDTH - strlen(bmsData[i].strRes) * Font_7x10.width) / 2;
+    x = (SSD1306_WIDTH - strlen(bmsData[i].strResult) * Font_7x10.width) / 2;
     ssd1306_SetCursor(x, y);
-    ssd1306_WriteString(bmsData[i].strRes, Font_7x10, White);
+    ssd1306_WriteString(bmsData[i].strResult, Font_7x10, White);
     // Сохраняем новое значение
-    if (strcmp(prevStrings[i], bmsData[i].strRes) != 0) {
-      strcpy(prevStrings[i], bmsData[i].strRes);
+    if (strcmp(bmsData[i].strPrev, bmsData[i].strResult) != 0) {
+      strcpy(bmsData[i].strPrev, bmsData[i].strResult);
     }
   }
   ssd1306_UpdateScreen();

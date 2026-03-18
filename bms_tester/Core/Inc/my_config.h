@@ -15,7 +15,8 @@ typedef struct  {
   const uint8_t addr;                 // Адрес данных в BMS
   const uint8_t rxBufSize;            // Размер буфера для приёма данных по UART RX
   const uint8_t dataTx[TX_BUFSIZE];   // Массив данных для передачи по UART TX
-  char strRes[STR_SIZE];              // Итоговая строка с результатом
+  char strResult[STR_SIZE];           // Итоговая строка с результатом
+  char strPrev[STR_SIZE];             // Предыдущая полученная строка результата
 } BmsData;
 
 // ---------------------------------------------------------------------------------------
