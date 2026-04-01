@@ -279,6 +279,9 @@ void vTaskSystemReset(void *argument) {
 // Функция обработки полученных данных
 void _processReceivedData(void) {
   switch (bmsData[addrCount].addr) {
+    case 0x10:
+      // Серийный номер
+      break;
     case 0x17:
       // Версия прошивки BMS
       uint16_t version = (rxData[8] << 8) | rxData[7];
