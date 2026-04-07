@@ -26,6 +26,7 @@ const size_t bmsDataCount = sizeof(bmsData) / sizeof(bmsData[0]);
 CodeMapping mappings[] = {
     {0x4E344007, "Urent"},
     {0x4E34300A, "Teltonika"},
+    {0x604E3440, "Yandex"},
     {0x4E34300E, "Woosh"},
     {0x4E34400C, "Borzhu"},
     {0x4E344003, "Marvel"},
