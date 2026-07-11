@@ -23,7 +23,6 @@ const size_t bmsDataCount = sizeof(bmsData) / sizeof(bmsData[0]);
 // ---------------------------------------------------------------------------------------
 
 // Массив структур для поиска вендора по коду
-/*
 CodeMapping mappings[] = {
     {0x4E344007, "Urent"},
     {0x4E34300A, "Teltonika"},
@@ -37,7 +36,6 @@ CodeMapping mappings[] = {
     {0x4E344005, "Molniya"},
     {0x4E34400A, "Swing"},
 };
-*/
 
 char str[STR_SIZE] = { 0, };
 
